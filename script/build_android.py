@@ -7,14 +7,21 @@ Kebutuhan toolchain:
   - depot_tools sudah di-bootstrap (checkout.py) -> gn/ninja tersedia.
 
 Strategi GN args (menghindari error yang pernah terjadi di build Linux):
+  - target_os="android" AKAN memicu //third_party/cpu-features/BUILD.gn yang
+    membaca sumber "$ndk/sources/android/cpufeatures/cpu-features.c". Variabel
+    `ndk` adalah declare_args resmi di gn/BUILDCONFIG.gn -> WAJIB di-set ke
+    path NDK, kalau tidak ninja error "missing and no known rule to make it".
+  - target_cpu memakai nama GN ("arm64"/"arm"), BUKAN nama ABI
+    ("arm64-v8a"/"armeabi-v7a") -> sebelumnya memicu assertion
+    "Unknown CPU: arm64-v8a" di partition_alloc.gni.
   - Semua dependency DI-BUNDLE dari third_party/externals
     (system libs OFF) -> tidak ada konflik header dengan runner.
-  - skia_use_gl=true memakai backend OpenGL ES (OpenGL desktop & Vulkan
-    dimatikan karena tidak tersedia di Android).
-  - is_official_build=false -> hindari arg linker "-fuse-ld=gold" dan
-    masalah partition_alloc.
-  - cc/cxx memakai clang bawaan NDK (satu-satunya compiler yang valid
-    untuk target Android).
+  - skia_use_gl=true memakai backend OpenGL ES; Vulkan dimatikan agar tidak
+    butuh pustaka prabuild NDK (libvulkan.so/VMA prebuilt).
+  - cc/cxx TIDAK di-set: BUILDCONFIG.gn otomatis memakai clang bawaan NDK
+    lewat prefix "$ndk/toolchains/llvm/prebuilt/<host>/bin" (set manual ke
+    "clang" akan kehilangan --target & sysroot -> compile gagal).
+  - is_official_build=false -> hindari arg linker "-fuse-ld=gold".
 
 Menghasilkan satu library statis gabungan per ABI: out/<type>-<abi>/obj/libskia.a
 """
@@ -22,6 +29,15 @@ Menghasilkan satu library statis gabungan per ABI: out/<type>-<abi>/obj/libskia.
 import argparse, os, pathlib, platform, subprocess, sys
 
 DEFAULT_ABIS = ["arm64-v8a", "armeabi-v7a", "x86_64"]
+
+# ABI Android -> target_cpu versi GN (lihat //build/toolchain/*.gn &
+# third_party/externals/partition_alloc/partition_alloc.gni)
+ABI_TO_GN_CPU = {
+    "arm64-v8a": "arm64",
+    "armeabi-v7a": "arm",
+    "x86": "x86",
+    "x86_64": "x86_64",
+}
 
 
 def find_tool(root, name):
@@ -92,11 +108,23 @@ def main():
 
     failed = []
     for abi in abis:
+        # ABI -> target_cpu GN ("arm64-v8a" adalah nama ABI, BUKAN nama CPU;
+        # memakainya langsung memicu assertion partition_alloc.gni)
+        cpu = ABI_TO_GN_CPU.get(abi)
+        if cpu is None:
+            print(f"WARNING: ABI tidak dikenal: {abi} (skip). "
+                  f"Pilihan valid: {', '.join(ABI_TO_GN_CPU)}")
+            failed.append(abi)
+            continue
         out = os.path.join(skia, "out", f"{args.build_type}-{abi}")
         gn_args = [
             'target_os="android"',
-            f'target_cpu="{abi}"',
-            f'android_ndk_path="{ndk}"',
+            f'target_cpu="{cpu}"',
+            # `ndk` = declare_args resmi di gn/BUILDCONFIG.gn. WAJIB: target
+            # //third_party/cpu-features mengambil sumber dari
+            # "$ndk/sources/android/cpufeatures/cpu-features.c". Tanpa ini
+            # ninja gagal: "... cpu-features.c missing and no known rule...".
+            f'ndk="{ndk}"',
             # bundled deps (gaya JetBrains) - hindari header sistem runner
             'skia_use_system_expat=false',
             'skia_use_system_libjpeg_turbo=false',
@@ -111,13 +139,12 @@ def main():
             'skia_use_icu=true',
             'skia_pdf_subset_harfbuzz=true',
             'skia_enable_skottie=true',
-            # grafis: GLES saja (Vulkan & OpenGL desktop tidak ada di Android)
+            # grafis: OpenGL ES saja; Vulkan OFF (hindari libvulkan/VMA prebuilt)
             'skia_use_gl=true',
             'skia_use_vulkan=false',
             'skia_enable_gpu=true',
-            # toolchain NDK
-            'cc="clang"',
-            'cxx="clang++"',
+            # cc/cxx sengaja TIDAK di-set -> BUILDCONFIG.gn memakai clang NDK
+            # lengkap dengan --target=<triplet><api> dan sysroot otomatis.
             'extra_cflags_cc=["-frtti"]',
             'is_official_build=false',
         ]
