@@ -83,7 +83,7 @@ jobs:
           export PATH="$DEPOT_TOOLS_DIR:$PATH"
           git config --global --add safe.directory '*'
           mkdir -p "$HOME/skia-checkout" && cd "$HOME/skia-checkout"
-          fetch skia --no-history
+          fetch --nohistory skia
           cd skia
           git checkout "${SKIA_REF}"
           ./tools/git-sync-deps
@@ -185,7 +185,7 @@ jobs:
           export PATH="$DEPOT_TOOLS_DIR:$PATH"
           git config --global --add safe.directory '*'
           mkdir -p "$HOME/skia-checkout" && cd "$HOME/skia-checkout"
-          fetch skia --no-history
+          fetch --nohistory skia
           cd skia
           git checkout "${SKIA_REF}"
           ./tools/git-sync-deps
