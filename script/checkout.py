@@ -23,12 +23,43 @@ def main():
     version = args.version
 
     # --- depot_tools ---------------------------------------------------------
-    if not os.path.exists("depot_tools"):
+    dt = os.path.abspath("depot_tools")
+    if not os.path.exists(dt):
         subprocess.check_call(
             ["git", "clone", "--depth", "1",
              "https://chromium.googlesource.com/chromium/tools/depot_tools.git",
              "depot_tools"]
         )
+
+    # Bootstrap depot_tools: membuat python3_bin_reldir.txt + mengunduh paket CIPD
+    # (gn, ninja, dll). Tanpa langkah ini, wrapper depot_tools gagal dengan pesan
+    #   "python3_bin_reldir.txt not found. need to initialize depot_tools..."
+    env = os.environ.copy()
+    env["DEPOT_TOOLS_UPDATE"] = "0"          # jangan self-update tiap pemanggilan
+    env.setdefault("HOME", os.getcwd())      # hindari masalah HOME di runner
+    cipd_root = os.path.join(os.getcwd(), ".cipd_root")
+    os.makedirs(cipd_root, exist_ok=True)
+    env["CIPD_CACHE_ROOT"] = cipd_root       # cache lokal agar unduhan tidak dobel
+    reldir = os.path.join(dt, "python3_bin_reldir.txt")
+    if not os.path.exists(reldir):
+        print("> Bootstrapping depot_tools ...")
+        r = subprocess.run([os.path.join(dt, "ensure_bootstrap")], env=env)
+        if r.returncode != 0 and not os.path.exists(reldir):
+            # fallback: panggil update_depot_tools (mengunduh gn/ninja juga)
+            subprocess.check_call([os.path.join(dt, "update_depot_tools")], env=env)
+        if not os.path.exists(reldir):
+            sys.exit("ERROR: depot_tools gagal di-bootstrap (python3_bin_reldir.txt tidak ada)")
+    else:
+        print("> depot_tools sudah ter-bootstrap.")
+
+    # Prefetch binari gn & ninja lewat CIPD -> build.py tak lagi butuh network.
+    for tool in ("gn", "ninja"):
+        r = subprocess.run([os.path.join(dt, "download_from_google_storage"),
+                            "--no_auth", "--recursive", "--num_threads", "8",
+                            "-o", os.path.join(dt, tool),
+                            "skia/third_party/" + tool], env=env)
+        if r.returncode != 0:
+            print(f"WARNING: prefetch {tool} gagal; akan dicoba saat git-sync-deps/gn gen.")
 
     # --- Skia ----------------------------------------------------------------
     # Format mNNN-sha (gaya JetBrains) -> branch chrome/mNNN, checkout sha
@@ -79,10 +110,42 @@ def main():
             subprocess.check_call(["git", "checkout", "--", "."])
 
     # --- third_party deps ----------------------------------------------------
-    env = os.environ.copy()
-    dt = os.path.abspath(os.path.join(os.pardir, "depot_tools"))
-    env["PATH"] = dt + os.pathsep + env.get("PATH", "")
-    subprocess.check_call([sys.executable, "tools/git-sync-deps"], env=env)
+    dtenv = os.environ.copy()
+    dtenv["PATH"] = dt + os.pathsep + dtenv.get("PATH", "")
+    dtenv["DEPOT_TOOLS_UPDATE"] = "0"
+    r = subprocess.run([sys.executable, "tools/git-sync-deps"], env=dtenv)
+    if r.returncode != 0:
+        # fallback: parse DEPS sendiri dan clone langsung dari googlesource
+        print("WARNING: git-sync-deps gagal, memakai fallback clone manual...")
+        import urllib.request
+        url = "https://skia.googlesource.com/skia/+" + head + "/DEPS?format=TEXT"
+        deps_txt = urllib.request.urlopen(url).read().decode()
+        import base64 as _b64  # noqa
+        # jika API mengirim base64
+        try:
+            deps_txt = _b64.b64decode(deps_txt).decode()
+        except Exception:
+            pass
+        for dm in re.finditer(r'"(third_party/externals/[^"]+)"\s*:\s*"([^"@]+)@([0-9a-f]{7,40})"',
+                              deps_txt):
+            path, base_url, rev = dm.groups()
+            if os.path.isdir(path):
+                continue
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            rr = subprocess.run(["git", "clone", "--quiet", base_url, path])
+            if rr.returncode != 0:
+                continue
+            subprocess.run(["git", "-C", path, "checkout", "--quiet", "-f", rev],
+                           capture_output=True)
+        # pastikan direktori externals penting ada
+        missing = [p for p in ("third_party/externals/freetype",
+                               "third_party/externals/harfbuzz",
+                               "third_party/externals/icu",
+                               "third_party/externals/expat",
+                               "third_party/externals/zlib")
+                   if not os.path.exists(p)]
+        if missing:
+            sys.exit("ERROR: dependency tidak lengkap: " + ", ".join(missing))
 
     return 0
 

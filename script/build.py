@@ -68,15 +68,46 @@ def main():
 
     skia = os.path.join(root, "skia")
     dt = os.path.join(root, "depot_tools")
-    gn = os.path.join(dt, "gn.exe" if system == "windows" else "gn")
-    ninja = os.path.join(dt, "ninja.exe" if system == "windows" else "ninja")
+
+    def find_tool(name):
+        """Cari binari gn/ninja asli, hindari wrapper depot_tools yang butuh
+        bootstrap (python3_bin_reldir.txt)."""
+        import glob as _glob
+        # 1) hasil unduhan git-sync-deps: third_party/<name>/linux*/<name>
+        for cand in sorted(_glob.glob(os.path.join(skia, "third_party", name, "*", name))):
+            if os.access(cand, os.X_OK) and not os.path.isdir(cand):
+                return cand
+        # 2) binari CIPD di cache depot_tools
+        for cand in sorted(_glob.glob(os.path.join(dt, ".cipd", "**", name), recursive=True)):
+            if os.access(cand, os.X_OK) and not os.path.isdir(cand):
+                return cand
+        # 3) langsung dari PATH sistem (runner sudah install ninja-build; gn bisa ada)
+        from shutil import which
+        w = which(name)
+        if w:
+            return w
+        # 4) terakhir: wrapper depot_tools (mungkin memicu bootstrap saat dipanggil)
+        return os.path.join(dt, name + (".exe" if system == "windows" else ""))
+
+    gn = find_tool("gn")
+    ninja = find_tool("ninja")
+    print("> menggunakan gn   :", gn)
+    print("> menggunakan ninja:", ninja)
 
     env = os.environ.copy()
     env["PATH"] = dt + os.pathsep + env.get("PATH", "")
     env.setdefault("DEPOT_TOOLS_UPDATE", "0")
 
     print("> gn gen", out)
-    subprocess.check_call([gn, "gen", out, "--args=" + " ".join(gn_args)], env=env, cwd=skia)
+    print(">   args:", " ".join(gn_args))
+    rc = subprocess.call([gn, "gen", out, "--args=" + " ".join(gn_args)], env=env, cwd=skia)
+    if rc != 0:
+        # cetak isi args.gn & daftar tool yang tersedia untuk diagnosis
+        ag = os.path.join(out, "args.gn")
+        if os.path.exists(ag):
+            print("----- args.gn -----")
+            print(open(ag).read())
+        sys.exit(f"ERROR: 'gn gen' gagal (exit {rc}). Lihat pesan di atas.")
 
     modules = ["modules/skottie", "modules/skparagraph", "modules/skshaper", "modules/svg"]
     targets = ["skia"] + modules
