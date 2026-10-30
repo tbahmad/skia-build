@@ -63,9 +63,15 @@ jobs:
       - name: Archive (script/archive.py)
         run: python3 script/archive.py --version "$SKIA_VERSION" --build-type "$BUILD_TYPE"
 
+      - name: Compute safe artifact name
+        run: |
+          SAFE_NAME=$(python3 -c 'import re,sys; print(re.sub(r"[^A-Za-z0-9._+-]", "_", sys.argv[1]))' "Skia-${SKIA_VERSION}-linux-${BUILD_TYPE}-x64")
+          echo "ARTIFACT_NAME=${SAFE_NAME}" >> "$GITHUB_ENV"
+          echo "Artifact name: ${SAFE_NAME}"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Skia-${{ github.event.inputs.skia_version || 'chrome/m148' }}-linux-${{ env.BUILD_TYPE }}-x64
+          name: ${{ env.ARTIFACT_NAME }}
           path: "*.zip"
           retention-days: 14
