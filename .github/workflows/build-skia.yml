@@ -55,25 +55,26 @@ jobs:
       - name: Restore depot_tools bootstrap cache
         uses: actions/cache@v4
         with:
-          path: ~/dt-bootstrap-linux
-          key: depot-tools-bootstrap-linux-v1
+          path: ~/.cache/depot_tools_bootstrap/linux
+          key: depot-tools-bootstrap-linux-v3
 
       - name: Initialize depot_tools bootstrap
         run: |
           set -euxo pipefail
-          if [ -f "$HOME/dt-bootstrap-linux/python3_bin_reldir.txt" ] \
-             && [ -d "$HOME/dt-bootstrap-linux/.cipd_bin_packages" ]; then
-            cp -r "$HOME/dt-bootstrap-linux/." "$DEPOT_TOOLS_DIR/"
-          else
-            cd "$DEPOT_TOOLS_DIR"
-            # Jalankan gclient sekali untuk memicu bootstrap CIPD
-            # (unduh python3/gn/ninja via .cipd + menulis python3_bin_reldir.txt)
-            ./gclient sync --nohooks >/dev/null 2>&1 || true
-            test -f python3_bin_reldir.txt
-            mkdir -p "$HOME/dt-bootstrap-linux"
-            cp -r python3_bin_reldir.txt .cipd .cipd_client "$HOME/dt-bootstrap-linux/" 2>/dev/null \
-              || cp -r . "$HOME/dt-bootstrap-linux/"
-          fi
+          cd "$DEPOT_TOOLS_DIR"
+          # Pastikan $HOME/.cache ada sebelum menimpa env HOME untuk bootstrap,
+          # lalu kembalikan agar actions/cache@v4 memakai HOME asli runner.
+          CACHE_ROOT="$HOME/.cache/depot_tools_bootstrap/linux"
+          mkdir -p "$CACHE_ROOT"
+          export HOME="$CACHE_ROOT"
+          unset DEPOT_TOOLS_UPDATE
+          # ensure_bootstrap bersifat idempoten:
+          # - jika cache HIT (.cipd_bin sudah dipulihkan), hanya re-resolve symlink (~10-20 dtk)
+          # - jika cache MISS, mengunduh paket CIPD lalu tersimpan kembali oleh step cache
+          ./ensure_bootstrap
+          HOME_ORIG=$(getent passwd "$(id -u)" | cut -d: -f6)
+          export HOME="$HOME_ORIG"
+          test -f python3_bin_reldir.txt
           "$DEPOT_TOOLS_DIR/fetch" --help >/dev/null
 
       - name: Checkout Skia + dependencies
@@ -156,25 +157,26 @@ jobs:
       - name: Restore depot_tools bootstrap cache
         uses: actions/cache@v4
         with:
-          path: ~/dt-bootstrap-macos
-          key: depot-tools-bootstrap-macos-v1
+          path: ~/.cache/depot_tools_bootstrap/macos
+          key: depot-tools-bootstrap-macos-v3
 
       - name: Initialize depot_tools bootstrap
         run: |
           set -euxo pipefail
-          if [ -f "$HOME/dt-bootstrap-macos/python3_bin_reldir.txt" ] \
-             && [ -d "$HOME/dt-bootstrap-macos/.cipd_bin_packages" ]; then
-            cp -r "$HOME/dt-bootstrap-macos/." "$DEPOT_TOOLS_DIR/"
-          else
-            cd "$DEPOT_TOOLS_DIR"
-            # Jalankan gclient sekali untuk memicu bootstrap CIPD
-            # (unduh python3/gn/ninja via .cipd + menulis python3_bin_reldir.txt)
-            ./gclient sync --nohooks >/dev/null 2>&1 || true
-            test -f python3_bin_reldir.txt
-            mkdir -p "$HOME/dt-bootstrap-macos"
-            cp -r python3_bin_reldir.txt .cipd .cipd_client "$HOME/dt-bootstrap-macos/" 2>/dev/null \
-              || cp -r . "$HOME/dt-bootstrap-macos/"
-          fi
+          cd "$DEPOT_TOOLS_DIR"
+          # Pastikan $HOME/.cache ada sebelum menimpa env HOME untuk bootstrap,
+          # lalu kembalikan agar actions/cache@v4 memakai HOME asli runner.
+          CACHE_ROOT="$HOME/.cache/depot_tools_bootstrap/macos"
+          mkdir -p "$CACHE_ROOT"
+          export HOME="$CACHE_ROOT"
+          unset DEPOT_TOOLS_UPDATE
+          # ensure_bootstrap bersifat idempoten:
+          # - jika cache HIT (.cipd_bin sudah dipulihkan), hanya re-resolve symlink (~10-20 dtk)
+          # - jika cache MISS, mengunduh paket CIPD lalu tersimpan kembali oleh step cache
+          ./ensure_bootstrap
+          HOME_ORIG=$(getent passwd "$(id -u)" | cut -d: -f6)
+          export HOME="$HOME_ORIG"
+          test -f python3_bin_reldir.txt
           "$DEPOT_TOOLS_DIR/fetch" --help >/dev/null
 
       - name: Checkout Skia + dependencies
