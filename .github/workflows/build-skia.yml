@@ -52,12 +52,29 @@ jobs:
           echo "DEPOT_TOOLS_DIR=/opt/depot_tools" >> "$GITHUB_ENV"
           echo "/opt/depot_tools:$PATH" >> "$GITHUB_PATH"
 
-      - name: Cache depot_tools cipd packages
+      - name: Restore depot_tools bootstrap cache
         uses: actions/cache@v4
         with:
-          path: /opt/depot_tools/.cipd_client
-          key: depot-tools-cipd-ubuntu-22.04-${{ github.run_id }}
-          restore-keys: depot-tools-cipd-ubuntu-22.04-
+          path: ~/dt-bootstrap-linux
+          key: depot-tools-bootstrap-linux-v1
+
+      - name: Initialize depot_tools bootstrap
+        run: |
+          set -euxo pipefail
+          if [ -f "$HOME/dt-bootstrap-linux/python3_bin_reldir.txt" ] \
+             && [ -d "$HOME/dt-bootstrap-linux/.cipd_bin_packages" ]; then
+            cp -r "$HOME/dt-bootstrap-linux/." "$DEPOT_TOOLS_DIR/"
+          else
+            cd "$DEPOT_TOOLS_DIR"
+            # Jalankan gclient sekali untuk memicu bootstrap CIPD
+            # (unduh python3/gn/ninja via .cipd + menulis python3_bin_reldir.txt)
+            ./gclient sync --nohooks >/dev/null 2>&1 || true
+            test -f python3_bin_reldir.txt
+            mkdir -p "$HOME/dt-bootstrap-linux"
+            cp -r python3_bin_reldir.txt .cipd .cipd_client "$HOME/dt-bootstrap-linux/" 2>/dev/null \
+              || cp -r . "$HOME/dt-bootstrap-linux/"
+          fi
+          "$DEPOT_TOOLS_DIR/fetch" --help >/dev/null
 
       - name: Checkout Skia + dependencies
         run: |
@@ -136,12 +153,29 @@ jobs:
           echo "DEPOT_TOOLS_DIR=/opt/depot_tools" >> "$GITHUB_ENV"
           echo "/opt/depot_tools:$PATH" >> "$GITHUB_PATH"
 
-      - name: Cache depot_tools cipd packages
+      - name: Restore depot_tools bootstrap cache
         uses: actions/cache@v4
         with:
-          path: /opt/depot_tools/.cipd_client
-          key: depot-tools-cipd-macos-13-${{ github.run_id }}
-          restore-keys: depot-tools-cipd-macos-13-
+          path: ~/dt-bootstrap-macos
+          key: depot-tools-bootstrap-macos-v1
+
+      - name: Initialize depot_tools bootstrap
+        run: |
+          set -euxo pipefail
+          if [ -f "$HOME/dt-bootstrap-macos/python3_bin_reldir.txt" ] \
+             && [ -d "$HOME/dt-bootstrap-macos/.cipd_bin_packages" ]; then
+            cp -r "$HOME/dt-bootstrap-macos/." "$DEPOT_TOOLS_DIR/"
+          else
+            cd "$DEPOT_TOOLS_DIR"
+            # Jalankan gclient sekali untuk memicu bootstrap CIPD
+            # (unduh python3/gn/ninja via .cipd + menulis python3_bin_reldir.txt)
+            ./gclient sync --nohooks >/dev/null 2>&1 || true
+            test -f python3_bin_reldir.txt
+            mkdir -p "$HOME/dt-bootstrap-macos"
+            cp -r python3_bin_reldir.txt .cipd .cipd_client "$HOME/dt-bootstrap-macos/" 2>/dev/null \
+              || cp -r . "$HOME/dt-bootstrap-macos/"
+          fi
+          "$DEPOT_TOOLS_DIR/fetch" --help >/dev/null
 
       - name: Checkout Skia + dependencies
         run: |
