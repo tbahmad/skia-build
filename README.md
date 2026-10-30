@@ -39,7 +39,7 @@ Setelah run hijau ✅:
 
 ```
 Skia-<versi>-<platform>-<tipe>.zip
-├── libs/<abi>/libskia.a        # Android: per ABI | Linux: libskia.a dll.
+ Linux: libskia.a dll.| Linux: libskia.a dll.
 ├── res/<abi>/icudtl.dat        # data ICU (wajib disertakan saat runtime)
 ├── include/                    # public headers  (include/core/*.h dll.)
 ├── modules/…                   # header skottie, skparagraph, svg, dll.
