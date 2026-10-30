@@ -41,23 +41,28 @@ jobs:
             mesa-common-dev libasound2-dev libpulse-dev \
             libcups2-dev libdrm-dev libegl1-mesa-dev libexpat1-dev
 
-      - name: Checkout depot_tools
-        uses: actions/checkout@v4
-        with:
-          repository: chromium/depot_tools
-          path: depot_tools
+      - name: Install depot_tools (plain git clone, tanpa actions/checkout)
+        run: |
+          set -euxo pipefail
+          sudo mkdir -p /opt
+          if [ ! -d /opt/depot_tools ]; then
+            sudo git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /opt/depot_tools
+            sudo chown -R "$USER:$USER" /opt/depot_tools
+          fi
+          echo "DEPOT_TOOLS_DIR=/opt/depot_tools" >> "$GITHUB_ENV"
+          echo "/opt/depot_tools:$PATH" >> "$GITHUB_PATH"
 
       - name: Cache depot_tools cipd packages
         uses: actions/cache@v4
         with:
-          path: depot_tools/.cipd
-          key: depot-tools-ubuntu-22.04-${{ hashFiles('depot_tools/README.chromium') }}
-          restore-keys: depot-tools-ubuntu-22.04-
+          path: /opt/depot_tools/.cipd_client
+          key: depot-tools-cipd-ubuntu-22.04-${{ github.run_id }}
+          restore-keys: depot-tools-cipd-ubuntu-22.04-
 
       - name: Checkout Skia + dependencies
         run: |
           set -euxo pipefail
-          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          export PATH="$DEPOT_TOOLS_DIR:$PATH"
           git config --global --add safe.directory '*'
           mkdir -p "$HOME/skia-checkout" && cd "$HOME/skia-checkout"
           fetch skia --no-history
@@ -69,7 +74,7 @@ jobs:
       - name: Configure (gn gen)
         run: |
           set -euxo pipefail
-          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          export PATH="$DEPOT_TOOLS_DIR:$PATH"
           cd "$SKIA_DIR"
           if [[ "${BUILD_MODE}" == "debug" ]]; then
             GN_ARGS="is_debug=true"
@@ -89,7 +94,7 @@ jobs:
       - name: Build (ninja)
         run: |
           set -euxo pipefail
-          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          export PATH="$DEPOT_TOOLS_DIR:$PATH"
           cd "$SKIA_DIR"
           ninja -C "out/${BUILD_MODE}" -j "$(nproc)"
 
@@ -120,23 +125,28 @@ jobs:
     name: Build Skia (macOS)
     runs-on: macos-13
     steps:
-      - name: Checkout depot_tools
-        uses: actions/checkout@v4
-        with:
-          repository: chromium/depot_tools
-          path: depot_tools
+      - name: Install depot_tools (plain git clone, tanpa actions/checkout)
+        run: |
+          set -euxo pipefail
+          sudo mkdir -p /opt
+          if [ ! -d /opt/depot_tools ]; then
+            sudo git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /opt/depot_tools
+            sudo chown -R "$USER:staff" /opt/depot_tools
+          fi
+          echo "DEPOT_TOOLS_DIR=/opt/depot_tools" >> "$GITHUB_ENV"
+          echo "/opt/depot_tools:$PATH" >> "$GITHUB_PATH"
 
       - name: Cache depot_tools cipd packages
         uses: actions/cache@v4
         with:
-          path: depot_tools/.cipd
-          key: depot-tools-macos-13-${{ hashFiles('depot_tools/README.chromium') }}
-          restore-keys: depot-tools-macos-13-
+          path: /opt/depot_tools/.cipd_client
+          key: depot-tools-cipd-macos-13-${{ github.run_id }}
+          restore-keys: depot-tools-cipd-macos-13-
 
       - name: Checkout Skia + dependencies
         run: |
           set -euxo pipefail
-          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          export PATH="$DEPOT_TOOLS_DIR:$PATH"
           git config --global --add safe.directory '*'
           mkdir -p "$HOME/skia-checkout" && cd "$HOME/skia-checkout"
           fetch skia --no-history
@@ -148,7 +158,7 @@ jobs:
       - name: Configure (gn gen)
         run: |
           set -euxo pipefail
-          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          export PATH="$DEPOT_TOOLS_DIR:$PATH"
           cd "$SKIA_DIR"
           if [[ "${BUILD_MODE}" == "debug" ]]; then
             GN_ARGS="is_debug=true"
@@ -165,7 +175,7 @@ jobs:
       - name: Build (ninja)
         run: |
           set -euxo pipefail
-          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          export PATH="$DEPOT_TOOLS_DIR:$PATH"
           cd "$SKIA_DIR"
           ninja -C "out/${BUILD_MODE}" -j "$(sysctl -n hw.ncpu)"
 
