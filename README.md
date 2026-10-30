@@ -1,26 +1,26 @@
 # skia-build
 
-GitHub Actions workflow untuk membangun [Skia](https://skia.org) dari source.
+GitHub Actions workflow untuk membangun [Skia](https://skia.org) dari source,
+mengadopsi pendekatan [JetBrains/skia-build](https://github.com/JetBrains/skia-build)
+(yang sudah diperbarui untuk Skia modern).
 
 ## Workflow: `.github/workflows/build-skia.yml`
 
-Membangun Skia untuk **Linux (ubuntu-22.04)** dan **macOS (macos-13)** dengan pipeline standar:
+Membangun Skia **hanya untuk Linux (ubuntu-24.04)** dengan pipeline:
 
-1. Install dependensi sistem + `depot_tools` (dengan cache paket cipd)
-2. `fetch skia` → checkout ref yang dipilih → `git-sync-deps`
-3. Konfigurasi dengan `gn gen` (clang, GL/Vulkan di Linux, Metal/GL di macOS)
-4. Build dengan `ninja`
-5. Smoke test `dm` (non-fatal)
-6. Upload artifact hasil build (`skia-linux-<mode>.tar.gz`, `skia-macos-<mode>.tar.gz`)
+1. Install dependensi sistem + `depot_tools`
+2. `script/checkout.py` → clone Skia + checkout versi yang dipilih + terapkan patch
+3. `script/build.py` → konfigurasi `gn gen` (semua dependensi bundled, system libs OFF) + build `ninja`
+4. `script/archive.py` → kemas hasil build (`libskia.a`, header, `icudtl.dat`) ke ZIP
+5. Upload artifact: `Skia-<versi>-linux-<tipe>-x64.zip`
 
 ## Trigger
 
-- **Push / Pull Request** ke branch `main` → build otomatis mode `release`.
 - **Run workflow** (manual) dengan input:
-  - `skia_ref`: branch/tag/commit Skia (default `chrome/m120`)
-  - `build_mode`: `release` atau `debug`
+  - `skia_version`: `main` | `chrome/mNNN` (mis. `chrome/m148`) | commit hash (default `chrome/m148`)
+  - `build_type`: `Release` atau `Debug`
 
 ## Catatan
 
 - Build Skia cukup berat; runner gratis GitHub Actions mungkin mendekati batas waktu. Pertimbangkan self-hosted runner untuk kecepatan lebih baik.
-- Artifact berisi seluruh direktori `out/<mode>` tanpa file objek, termasuk library statis (`libskia.a`), shared libs, dan tool seperti `dm`, `gm`, `nanobench`.
+- Artifact berisi library statis `libskia.a`, header publik Skia, dan data pendukung dalam format ZIP.

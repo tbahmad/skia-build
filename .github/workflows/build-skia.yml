@@ -63,31 +63,3 @@ jobs:
           name: Skia-${{ env.SKIA_VERSION }}-linux-${{ env.BUILD_TYPE }}-x64
           path: "*.zip"
           retention-days: 14
-
-  macos:
-    name: macOS (${{ github.event.inputs.build_type || 'Release' }})
-    runs-on: macos-14
-    timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      matrix:
-        machine: [arm64]
-    steps:
-      - name: Checkout this repo (script + patches)
-        uses: actions/checkout@v4
-
-      - name: Checkout Skia (script/checkout.py)
-        run: python3 script/checkout.py --version "$SKIA_VERSION"
-
-      - name: Build Skia (script/build.py)
-        run: python3 script/build.py --build-type "$BUILD_TYPE" --machine "${{ matrix.machine }}"
-
-      - name: Archive (script/archive.py)
-        run: python3 script/archive.py --version "$SKIA_VERSION" --build-type "$BUILD_TYPE" --machine "${{ matrix.machine }}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: Skia-${{ env.SKIA_VERSION }}-macos-${{ env.BUILD_TYPE }}-${{ matrix.machine }}
-          path: "*.zip"
-          retention-days: 14
