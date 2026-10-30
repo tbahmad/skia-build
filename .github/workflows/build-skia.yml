@@ -20,9 +20,9 @@ on:
   workflow_dispatch:
     inputs:
       skia_version:
-        description: "Versi Skia: main | chrome/mNNN (mis. chrome/m148) | mNNN-sha | commit hash"
+        description: "Versi Skia: main | chrome/mNNN (mis. chrome/m158) | mNNN-sha | commit hash"
         required: false
-        default: "chrome/m148"
+        default: "chrome/m158"
         type: string
       build_type:
         description: "Tipe build"
@@ -34,7 +34,7 @@ on:
           - Debug
 
 env:
-  SKIA_VERSION: ${{ github.event.inputs.skia_version || 'chrome/m148' }}
+  SKIA_VERSION: ${{ github.event.inputs.skia_version || 'chrome/m158' }}
   BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
   DEPOT_TOOLS_UPDATE: "0"
 

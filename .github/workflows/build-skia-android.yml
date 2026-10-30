@@ -1,0 +1,94 @@
+# Build Skia for Android — gaya JetBrains/skia-build (updated)
+#
+# Terpisah dari build-skia.yml (Linux desktop). Pipeline:
+#   checkout.py -> download_ndk.py -> build_android.py -> archive_android.py
+# Target ABI default: arm64-v8a, armeabi-v7a, x86_64 (bisa dipilih via input).
+name: Build Skia Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-skia-android.yml'
+      - 'script/build_android.py'
+      - 'script/download_ndk.py'
+      - 'script/archive_android.py'
+  workflow_dispatch:
+    inputs:
+      skia_version:
+        description: "Versi Skia: main | chrome/mNNN (mis. chrome/m158) | mNNN-sha | commit hash"
+        required: false
+        default: "chrome/m158"
+        type: string
+      build_type:
+        description: "Tipe build"
+        required: false
+        default: "Release"
+        type: choice
+        options:
+          - Release
+          - Debug
+      abis:
+        description: "ABI Android (pisahkan dengan koma)"
+        required: false
+        default: "arm64-v8a,armeabi-v7a,x86_64"
+        type: choice
+        options:
+          - "arm64-v8a,armeabi-v7a,x86_64"
+          - "arm64-v8a"
+          - "arm64-v8a,armeabi-v7a"
+          - "x86_64"
+          - "ALL: arm64-v8a,armeabi-v7a,x86,x86_64"
+
+env:
+  SKIA_VERSION: ${{ github.event.inputs.skia_version || 'chrome/m158' }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+  ANDROID_ABIS: ${{ github.event.inputs.abis || 'arm64-v8a,armeabi-v7a,x86_64' }}
+  DEPOT_TOOLS_UPDATE: "0"
+
+jobs:
+  android:
+    name: Android (${{ github.event.inputs.build_type || 'Release' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout this repo (script + patches)
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git curl unzip zip python3 pkg-config ninja-build gcc g++
+
+      - name: Checkout Skia (script/checkout.py)
+        run: python3 script/checkout.py --version "$SKIA_VERSION"
+
+      - name: Download Android NDK (script/download_ndk.py)
+        run: python3 script/download_ndk.py
+
+      - name: Show selected ABIs
+        run: |
+          echo "ABIs: $ANDROID_ABIS"
+          if [ "$ANDROID_ABIS" = "ALL: arm64-v8a,armeabi-v7a,x86,x86_64" ]; then
+            echo "ANDROID_ABIS=arm64-v8a,armeabi-v7a,x86,x86_64" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build Skia for Android (script/build_android.py)
+        run: python3 script/build_android.py --build-type "$BUILD_TYPE" --abis "$ANDROID_ABIS"
+
+      - name: Archive Android (script/archive_android.py)
+        run: python3 script/archive_android.py --version "$SKIA_VERSION" --build-type "$BUILD_TYPE" --abis "$ANDROID_ABIS"
+
+      - name: Compute safe artifact name
+        run: |
+          SAFE_NAME=$(python3 -c 'import re,sys; print(re.sub(r"[^A-Za-z0-9._+-]", "_", sys.argv[1]))' "Skia-${SKIA_VERSION}-android-${BUILD_TYPE}")
+          echo "ARTIFACT_NAME=${SAFE_NAME}" >> "$GITHUB_ENV"
+          echo "Artifact name: ${SAFE_NAME}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "*android*.zip"
+          retention-days: 14
