@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       skia_ref:
-        description: "Skia branch/tag/commit to build (e.g. chrome/m120 atau commit hash)"
+        description: "Skia branch/tag/commit to build (e.g. main, chrome/m148, atau commit hash)"
         required: false
-        default: "chrome/m120"
+        default: "main"
         type: string
       build_mode:
         description: "Build mode yang diteruskan ke gn"
@@ -21,7 +21,7 @@ on:
   pull_request:
 
 env:
-  SKIA_REF: ${{ github.event.inputs.skia_ref || 'chrome/m120' }}
+  SKIA_REF: ${{ github.event.inputs.skia_ref || 'main' }}
   BUILD_MODE: ${{ github.event.inputs.build_mode || 'release' }}
   DEPOT_TOOLS_UPDATE: "0"
 
@@ -83,9 +83,17 @@ jobs:
           export PATH="$DEPOT_TOOLS_DIR:$PATH"
           git config --global --add safe.directory '*'
           mkdir -p "$HOME/skia-checkout" && cd "$HOME/skia-checkout"
-          fetch --nohistory skia
+          # NOTE: jangan pakai --nohistory/shallow clone — branch seperti
+          # chrome/mNN hanya ada di server dan tidak ikut ter-fetch saat shallow,
+          # sehingga "git checkout chrome/m120" gagal dengan pathspec did not match.
+          fetch skia
           cd skia
-          git checkout "${SKIA_REF}"
+          if ! git checkout "${SKIA_REF}" 2>/dev/null; then
+            # fallback: ambil ref spesifik dari remote lalu checkout
+            git fetch origin "+refs/heads/${SKIA_REF}:refs/remotes/origin/${SKIA_REF}"               || git fetch origin "+refs/tags/${SKIA_REF}:refs/tags/${SKIA_REF}"
+            git checkout "${SKIA_REF}"
+          fi
+          git rev-parse HEAD
           ./tools/git-sync-deps
           echo "SKIA_DIR=$PWD" >> "$GITHUB_ENV"
 
@@ -185,9 +193,17 @@ jobs:
           export PATH="$DEPOT_TOOLS_DIR:$PATH"
           git config --global --add safe.directory '*'
           mkdir -p "$HOME/skia-checkout" && cd "$HOME/skia-checkout"
-          fetch --nohistory skia
+          # NOTE: jangan pakai --nohistory/shallow clone — branch seperti
+          # chrome/mNN hanya ada di server dan tidak ikut ter-fetch saat shallow,
+          # sehingga "git checkout chrome/m120" gagal dengan pathspec did not match.
+          fetch skia
           cd skia
-          git checkout "${SKIA_REF}"
+          if ! git checkout "${SKIA_REF}" 2>/dev/null; then
+            # fallback: ambil ref spesifik dari remote lalu checkout
+            git fetch origin "+refs/heads/${SKIA_REF}:refs/remotes/origin/${SKIA_REF}"               || git fetch origin "+refs/tags/${SKIA_REF}:refs/tags/${SKIA_REF}"
+            git checkout "${SKIA_REF}"
+          fi
+          git rev-parse HEAD
           ./tools/git-sync-deps
           echo "SKIA_DIR=$PWD" >> "$GITHUB_ENV"
 
