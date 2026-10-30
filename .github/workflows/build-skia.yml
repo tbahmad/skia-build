@@ -1,0 +1,185 @@
+name: Build Skia
+
+on:
+  workflow_dispatch:
+    inputs:
+      skia_ref:
+        description: "Skia branch/tag/commit to build (e.g. chrome/m120 atau commit hash)"
+        required: false
+        default: "chrome/m120"
+        type: string
+      build_mode:
+        description: "Build mode yang diteruskan ke gn"
+        required: false
+        default: "release"
+        type: choice
+        options:
+          - release
+          - debug
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  SKIA_REF: ${{ github.event.inputs.skia_ref || 'chrome/m120' }}
+  BUILD_MODE: ${{ github.event.inputs.build_mode || 'release' }}
+  DEPOT_TOOLS_UPDATE: "0"
+
+jobs:
+  build-linux:
+    name: Build Skia (Linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git curl wget unzip python3 pkg-config ninja-build \
+            libfontconfig1-dev libfreetype6-dev libx11-dev \
+            libxcursor-dev libxi-dev libxinerama-dev libxkbcommon-dev \
+            libxrandr-dev libglu1-mesa-dev libgl1-mesa-dev \
+            mesa-common-dev libasound2-dev libpulse-dev \
+            libcups2-dev libdrm-dev libegl1-mesa-dev libexpat1-dev
+
+      - name: Checkout depot_tools
+        uses: actions/checkout@v4
+        with:
+          repository: chromium/depot_tools
+          path: depot_tools
+
+      - name: Cache depot_tools cipd packages
+        uses: actions/cache@v4
+        with:
+          path: depot_tools/.cipd
+          key: depot-tools-ubuntu-22.04-${{ hashFiles('depot_tools/README.chromium') }}
+          restore-keys: depot-tools-ubuntu-22.04-
+
+      - name: Checkout Skia + dependencies
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          git config --global --add safe.directory '*'
+          mkdir -p "$HOME/skia-checkout" && cd "$HOME/skia-checkout"
+          fetch skia --no-history
+          cd skia
+          git checkout "${SKIA_REF}"
+          ./tools/git-sync-deps
+          echo "SKIA_DIR=$PWD" >> "$GITHUB_ENV"
+
+      - name: Configure (gn gen)
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          cd "$SKIA_DIR"
+          if [[ "${BUILD_MODE}" == "debug" ]]; then
+            GN_ARGS="is_debug=true"
+          else
+            GN_ARGS="is_debug=false"
+          fi
+          bin/gn gen "out/${BUILD_MODE}" --args="${GN_ARGS}
+            skia_use_dawn=false
+            skia_use_gl=true
+            skia_use_vulkan=true
+            skia_use_expat=true
+            skia_use_fontconfig=true
+            skia_use_freetype=true
+            cc=\"clang\" cxx=\"clang++\"
+          "
+
+      - name: Build (ninja)
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          cd "$SKIA_DIR"
+          ninja -C "out/${BUILD_MODE}" -j "$(nproc)"
+
+      - name: Smoke test (dm, non-fatal)
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          cd "$SKIA_DIR"
+          ./out/"${BUILD_MODE}"/dm --autotest --write "out/${BUILD_MODE}/dm.json" \
+            --match graphitest --config 8888
+
+      - name: Package artifacts
+        run: |
+          set -euxo pipefail
+          cd "$SKIA_DIR/out/${BUILD_MODE}"
+          tar czf "/tmp/skia-linux-${BUILD_MODE}.tar.gz" \
+            --exclude='*.o' --exclude='./obj' \
+            .
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: skia-linux-${{ env.BUILD_MODE }}
+          path: /tmp/skia-linux-*.tar.gz
+          retention-days: 14
+
+  build-macos:
+    name: Build Skia (macOS)
+    runs-on: macos-13
+    steps:
+      - name: Checkout depot_tools
+        uses: actions/checkout@v4
+        with:
+          repository: chromium/depot_tools
+          path: depot_tools
+
+      - name: Cache depot_tools cipd packages
+        uses: actions/cache@v4
+        with:
+          path: depot_tools/.cipd
+          key: depot-tools-macos-13-${{ hashFiles('depot_tools/README.chromium') }}
+          restore-keys: depot-tools-macos-13-
+
+      - name: Checkout Skia + dependencies
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          git config --global --add safe.directory '*'
+          mkdir -p "$HOME/skia-checkout" && cd "$HOME/skia-checkout"
+          fetch skia --no-history
+          cd skia
+          git checkout "${SKIA_REF}"
+          ./tools/git-sync-deps
+          echo "SKIA_DIR=$PWD" >> "$GITHUB_ENV"
+
+      - name: Configure (gn gen)
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          cd "$SKIA_DIR"
+          if [[ "${BUILD_MODE}" == "debug" ]]; then
+            GN_ARGS="is_debug=true"
+          else
+            GN_ARGS="is_debug=false"
+          fi
+          bin/gn gen "out/${BUILD_MODE}" --args="${GN_ARGS}
+            skia_use_dawn=false
+            skia_use_metal=true
+            skia_use_gl=true
+            cc=\"clang\" cxx=\"clang++\"
+          "
+
+      - name: Build (ninja)
+        run: |
+          set -euxo pipefail
+          export PATH="$GITHUB_WORKSPACE/depot_tools:$PATH"
+          cd "$SKIA_DIR"
+          ninja -C "out/${BUILD_MODE}" -j "$(sysctl -n hw.ncpu)"
+
+      - name: Package artifacts
+        run: |
+          set -euxo pipefail
+          cd "$SKIA_DIR/out/${BUILD_MODE}"
+          tar czf "/tmp/skia-macos-${BUILD_MODE}.tar.gz" \
+            --exclude='*.o' --exclude='./obj' \
+            .
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: skia-macos-${{ env.BUILD_MODE }}
+          path: /tmp/skia-macos-*.tar.gz
+          retention-days: 14
