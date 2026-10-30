@@ -11,6 +11,12 @@
 name: Build Skia
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-skia.yml'
+      - 'script/**'
+      - 'patches/**'
   workflow_dispatch:
     inputs:
       skia_version:
