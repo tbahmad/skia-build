@@ -66,6 +66,6 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Skia-${{ env.SKIA_VERSION }}-linux-${{ env.BUILD_TYPE }}-x64
+          name: Skia-${{ github.event.inputs.skia_version || 'chrome/m148' }}-linux-${{ env.BUILD_TYPE }}-x64
           path: "*.zip"
           retention-days: 14

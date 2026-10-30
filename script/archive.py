@@ -45,6 +45,8 @@ def main():
         pass
     m = re.match(r"^m(\d+)", args.version)
     version = f"m{m.group(1)}-{head}" if (m and head) else (args.version + ("-" + head if head else ""))
+    # nama file tidak boleh mengandung "/" (mis. ref "chrome/m148") -> ganti dengan "_"
+    version = version.replace("/", "_")
 
     out_dir = "out/" + build_type + "-" + machine
     globs = [
