@@ -1,271 +1,93 @@
+# Build Skia — gaya JetBrains/skia-build (updated)
+#
+# Mengadopsi pendekatan https://github.com/JetBrains/skia-build:
+#   - git clone skia langsung (tanpa `fetch`/gclient DEPS yang rewel)
+#   - semua dependency di-bundle dari third_party/externals (system libs OFF)
+#     -> tidak ada konflik header dengan runner (penyebab "4 errors generated")
+#   - gn args + patch JetBrains, namun sudah di-update untuk Skia modern:
+#       * python3 (Skia tak lagi butuh python2 untuk git-sync-deps)
+#       * g++ default runner (g++-9 tak ada di ubuntu-24.04)
+#       * is_official_build=false (hindari -fuse-ld=gold & error partition_alloc)
 name: Build Skia
 
 on:
   workflow_dispatch:
     inputs:
-      skia_ref:
-        description: "Skia branch/tag/commit to build (e.g. main, chrome/m148, atau commit hash)"
+      skia_version:
+        description: "Versi Skia: main | chrome/mNNN (mis. chrome/m148) | mNNN-sha | commit hash"
         required: false
-        default: "main"
+        default: "chrome/m148"
         type: string
-      build_mode:
-        description: "Build mode yang diteruskan ke gn"
+      build_type:
+        description: "Tipe build"
         required: false
-        default: "release"
+        default: "Release"
         type: choice
         options:
-          - release
-          - debug
-  push:
-    branches: [main]
-  pull_request:
+          - Release
+          - Debug
 
 env:
-  SKIA_REF: ${{ github.event.inputs.skia_ref || 'main' }}
-  BUILD_MODE: ${{ github.event.inputs.build_mode || 'release' }}
+  SKIA_VERSION: ${{ github.event.inputs.skia_version || 'chrome/m148' }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
   DEPOT_TOOLS_UPDATE: "0"
 
 jobs:
-  build-linux:
-    name: Build Skia (Linux)
-    runs-on: ubuntu-22.04
+  linux:
+    name: Linux (${{ github.event.inputs.build_type || 'Release' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
     steps:
+      - name: Checkout this repo (script + patches)
+        uses: actions/checkout@v4
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            git curl wget unzip python3 pkg-config ninja-build \
-            libfontconfig1-dev libfreetype6-dev libx11-dev \
-            libxcursor-dev libxi-dev libxinerama-dev libxkbcommon-dev \
-            libxrandr-dev libglu1-mesa-dev libgl1-mesa-dev \
-            mesa-common-dev libasound2-dev libpulse-dev \
-            libcups2-dev libdrm-dev libegl1-mesa-dev libexpat1-dev
+            git curl unzip zip python3 pkg-config ninja-build gcc g++ \
+            libfontconfig1-dev libglu1-mesa-dev
 
-      - name: Install depot_tools (plain git clone, tanpa actions/checkout)
-        run: |
-          set -euxo pipefail
-          sudo mkdir -p /opt
-          if [ ! -d /opt/depot_tools ]; then
-            sudo git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /opt/depot_tools
-            sudo chown -R "$USER:$USER" /opt/depot_tools
-          fi
-          echo "DEPOT_TOOLS_DIR=/opt/depot_tools" >> "$GITHUB_ENV"
-          echo "/opt/depot_tools:$PATH" >> "$GITHUB_PATH"
+      - name: Checkout Skia (script/checkout.py)
+        run: python3 script/checkout.py --version "$SKIA_VERSION"
 
-      - name: Restore depot_tools bootstrap cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/depot_tools_bootstrap/linux
-          key: depot-tools-bootstrap-linux-v3
+      - name: Build Skia (script/build.py)
+        run: python3 script/build.py --build-type "$BUILD_TYPE"
 
-      - name: Initialize depot_tools bootstrap
-        run: |
-          set -euxo pipefail
-          cd "$DEPOT_TOOLS_DIR"
-          # Pastikan $HOME/.cache ada sebelum menimpa env HOME untuk bootstrap,
-          # lalu kembalikan agar actions/cache@v4 memakai HOME asli runner.
-          CACHE_ROOT="$HOME/.cache/depot_tools_bootstrap/linux"
-          mkdir -p "$CACHE_ROOT"
-          export HOME="$CACHE_ROOT"
-          unset DEPOT_TOOLS_UPDATE
-          # ensure_bootstrap bersifat idempoten:
-          # - jika cache HIT (.cipd_bin sudah dipulihkan), hanya re-resolve symlink (~10-20 dtk)
-          # - jika cache MISS, mengunduh paket CIPD lalu tersimpan kembali oleh step cache
-          ./ensure_bootstrap
-          HOME_ORIG=$(getent passwd "$(id -u)" | cut -d: -f6)
-          export HOME="$HOME_ORIG"
-          test -f python3_bin_reldir.txt
-          "$DEPOT_TOOLS_DIR/fetch" --help >/dev/null
+      - name: Archive (script/archive.py)
+        run: python3 script/archive.py --version "$SKIA_VERSION" --build-type "$BUILD_TYPE"
 
-      - name: Checkout Skia + dependencies
-        run: |
-          set -euxo pipefail
-          export PATH="$DEPOT_TOOLS_DIR:$PATH"
-          git config --global --add safe.directory '*'
-          mkdir -p "$HOME/skia-checkout" && cd "$HOME/skia-checkout"
-          # NOTE: jangan pakai --nohistory/shallow clone — branch seperti
-          # chrome/mNN hanya ada di server dan tidak ikut ter-fetch saat shallow,
-          # sehingga "git checkout chrome/m120" gagal dengan pathspec did not match.
-          fetch skia
-          cd skia
-          if ! git checkout "${SKIA_REF}" 2>/dev/null; then
-            # fallback: ambil ref spesifik dari remote lalu checkout
-            git fetch origin "+refs/heads/${SKIA_REF}:refs/remotes/origin/${SKIA_REF}"               || git fetch origin "+refs/tags/${SKIA_REF}:refs/tags/${SKIA_REF}"
-            git checkout "${SKIA_REF}"
-          fi
-          git rev-parse HEAD
-          ./tools/git-sync-deps
-          echo "SKIA_DIR=$PWD" >> "$GITHUB_ENV"
-
-      - name: Configure (gn gen)
-        run: |
-          set -euxo pipefail
-          export PATH="$DEPOT_TOOLS_DIR:$PATH"
-          cd "$SKIA_DIR"
-          if [[ "${BUILD_MODE}" == "debug" ]]; then
-            GN_ARGS="is_debug=true"
-          else
-            GN_ARGS="is_debug=false"
-          fi
-          # NOTE: sengaja TIDAK mengaktifkan fontconfig/expat/freetype dari sistem —
-          # header bawaan runner (versi tidak konsisten dengan tgz yang di-extract
-          # dpkg) membuat compile gagal. Skia pakai bundled dependencies
-          # (third_party/externals/*) yang versinya sudah teruji. Vulkan juga dimatikan
-          # karena header loader-nya di image runner sering bermasalah.
-          bin/gn gen "out/${BUILD_MODE}" --args="${GN_ARGS}
-            skia_use_dawn=false
-            skia_use_expat=false
-            skia_use_fontconfig=false
-            skia_use_freetype=false
-            skia_use_gl=true
-            cc=\"clang\" cxx=\"clang++\"
-          "
-
-      - name: Build (ninja)
-        run: |
-          set -uo pipefail
-          export PATH="$DEPOT_TOOLS_DIR:$PATH"
-          cd "$SKIA_DIR"
-          # Simpan log lengkap; jika build gagal, cetak blok error agar penyebab
-          # sebenarnya terlihat di Actions log (bukan hanya ringkasan ninja).
-          if ninja -C "out/${BUILD_MODE}" -j "$(nproc)" 2>&1 | tee ninja-build.log; then
-            exit 0
-          else
-            echo "::error::ninja build gagal - menampilkan konteks error:"
-            grep -B 5 -A 40 "error:" ninja-build.log | tail -n 300 || true
-            exit 1
-          fi
-
-      - name: Smoke test (dm, non-fatal)
-        continue-on-error: true
-        run: |
-          set -euxo pipefail
-          cd "$SKIA_DIR"
-          ./out/"${BUILD_MODE}"/dm --autotest --write "out/${BUILD_MODE}/dm.json" \
-            --match graphitest --config 8888
-
-      - name: Package artifacts
-        run: |
-          set -euxo pipefail
-          cd "$SKIA_DIR/out/${BUILD_MODE}"
-          tar czf "/tmp/skia-linux-${BUILD_MODE}.tar.gz" \
-            --exclude='*.o' --exclude='./obj' \
-            .
-
-      - name: Upload build artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: skia-linux-${{ env.BUILD_MODE }}
-          path: /tmp/skia-linux-*.tar.gz
+          name: Skia-${{ env.SKIA_VERSION }}-linux-${{ env.BUILD_TYPE }}-x64
+          path: "*.zip"
           retention-days: 14
 
-  build-macos:
-    name: Build Skia (macOS)
-    runs-on: macos-13
+  macos:
+    name: macOS (${{ github.event.inputs.build_type || 'Release' }})
+    runs-on: macos-14
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        machine: [arm64]
     steps:
-      - name: Install depot_tools (plain git clone, tanpa actions/checkout)
-        run: |
-          set -euxo pipefail
-          sudo mkdir -p /opt
-          if [ ! -d /opt/depot_tools ]; then
-            sudo git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git /opt/depot_tools
-            sudo chown -R "$USER:staff" /opt/depot_tools
-          fi
-          echo "DEPOT_TOOLS_DIR=/opt/depot_tools" >> "$GITHUB_ENV"
-          echo "/opt/depot_tools:$PATH" >> "$GITHUB_PATH"
+      - name: Checkout this repo (script + patches)
+        uses: actions/checkout@v4
 
-      - name: Restore depot_tools bootstrap cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/depot_tools_bootstrap/macos
-          key: depot-tools-bootstrap-macos-v3
+      - name: Checkout Skia (script/checkout.py)
+        run: python3 script/checkout.py --version "$SKIA_VERSION"
 
-      - name: Initialize depot_tools bootstrap
-        run: |
-          set -euxo pipefail
-          cd "$DEPOT_TOOLS_DIR"
-          # Pastikan $HOME/.cache ada sebelum menimpa env HOME untuk bootstrap,
-          # lalu kembalikan agar actions/cache@v4 memakai HOME asli runner.
-          CACHE_ROOT="$HOME/.cache/depot_tools_bootstrap/macos"
-          mkdir -p "$CACHE_ROOT"
-          export HOME="$CACHE_ROOT"
-          unset DEPOT_TOOLS_UPDATE
-          # ensure_bootstrap bersifat idempoten:
-          # - jika cache HIT (.cipd_bin sudah dipulihkan), hanya re-resolve symlink (~10-20 dtk)
-          # - jika cache MISS, mengunduh paket CIPD lalu tersimpan kembali oleh step cache
-          ./ensure_bootstrap
-          HOME_ORIG=$(getent passwd "$(id -u)" | cut -d: -f6)
-          export HOME="$HOME_ORIG"
-          test -f python3_bin_reldir.txt
-          "$DEPOT_TOOLS_DIR/fetch" --help >/dev/null
+      - name: Build Skia (script/build.py)
+        run: python3 script/build.py --build-type "$BUILD_TYPE" --machine "${{ matrix.machine }}"
 
-      - name: Checkout Skia + dependencies
-        run: |
-          set -euxo pipefail
-          export PATH="$DEPOT_TOOLS_DIR:$PATH"
-          git config --global --add safe.directory '*'
-          mkdir -p "$HOME/skia-checkout" && cd "$HOME/skia-checkout"
-          # NOTE: jangan pakai --nohistory/shallow clone — branch seperti
-          # chrome/mNN hanya ada di server dan tidak ikut ter-fetch saat shallow,
-          # sehingga "git checkout chrome/m120" gagal dengan pathspec did not match.
-          fetch skia
-          cd skia
-          if ! git checkout "${SKIA_REF}" 2>/dev/null; then
-            # fallback: ambil ref spesifik dari remote lalu checkout
-            git fetch origin "+refs/heads/${SKIA_REF}:refs/remotes/origin/${SKIA_REF}"               || git fetch origin "+refs/tags/${SKIA_REF}:refs/tags/${SKIA_REF}"
-            git checkout "${SKIA_REF}"
-          fi
-          git rev-parse HEAD
-          ./tools/git-sync-deps
-          echo "SKIA_DIR=$PWD" >> "$GITHUB_ENV"
+      - name: Archive (script/archive.py)
+        run: python3 script/archive.py --version "$SKIA_VERSION" --build-type "$BUILD_TYPE" --machine "${{ matrix.machine }}"
 
-      - name: Configure (gn gen)
-        run: |
-          set -euxo pipefail
-          export PATH="$DEPOT_TOOLS_DIR:$PATH"
-          cd "$SKIA_DIR"
-          if [[ "${BUILD_MODE}" == "debug" ]]; then
-            GN_ARGS="is_debug=true"
-          else
-            GN_ARGS="is_debug=false"
-          fi
-          # NOTE: sama seperti Linux — hanya bundled deps + backend Metal/GL.
-          bin/gn gen "out/${BUILD_MODE}" --args="${GN_ARGS}
-            skia_use_dawn=false
-            skia_use_expat=false
-            skia_use_fontconfig=false
-            skia_use_freetype=false
-            skia_use_metal=true
-            skia_use_gl=true
-            cc=\"clang\" cxx=\"clang++\"
-          "
-
-      - name: Build (ninja)
-        run: |
-          set -uo pipefail
-          export PATH="$DEPOT_TOOLS_DIR:$PATH"
-          cd "$SKIA_DIR"
-          # Simpan log lengkap; jika build gagal, cetak blok error agar penyebab
-          # sebenarnya terlihat di Actions log (bukan hanya ringkasan ninja).
-          if ninja -C "out/${BUILD_MODE}" -j "$(sysctl -n hw.ncpu)" 2>&1 | tee ninja-build.log; then
-            exit 0
-          else
-            echo "::error::ninja build gagal - menampilkan konteks error:"
-            grep -B 5 -A 40 "error:" ninja-build.log | tail -n 300 || true
-            exit 1
-          fi
-
-      - name: Package artifacts
-        run: |
-          set -euxo pipefail
-          cd "$SKIA_DIR/out/${BUILD_MODE}"
-          tar czf "/tmp/skia-macos-${BUILD_MODE}.tar.gz" \
-            --exclude='*.o' --exclude='./obj' \
-            .
-
-      - name: Upload build artifacts
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: skia-macos-${{ env.BUILD_MODE }}
-          path: /tmp/skia-macos-*.tar.gz
+          name: Skia-${{ env.SKIA_VERSION }}-macos-${{ env.BUILD_TYPE }}-${{ matrix.machine }}
+          path: "*.zip"
           retention-days: 14

@@ -1,0 +1,4 @@
+depot_tools/
+skia/
+*.zip
+__pycache__/
