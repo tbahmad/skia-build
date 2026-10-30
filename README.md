@@ -1,39 +1,116 @@
 # skia-build
 
-GitHub Actions workflow untuk membangun [Skia](https://skia.org) dari source,
-mengadopsi pendekatan [JetBrains/skia-build](https://github.com/JetBrains/skia-build)
-(yang sudah diperbarui untuk Skia modern).
+Build [Skia](https://skia.org) otomatis via GitHub Actions, terinspirasi dari
+[JetBrains/skia-build](https://github.com/JetBrains/skia-build) namun sudah
+di-update untuk Skia modern (chrome/m158).
 
-## Workflow 1: `.github/workflows/build-skia.yml` (Linux desktop)
+## Workflow yang tersedia
 
-Membangun Skia **hanya untuk Linux (ubuntu-24.04)** dengan pipeline:
+| File | Platform | Trigger |
+|---|---|---|
+| `.github/workflows/build-skia.yml` | Linux x64 desktop | push ke `main` (jika file terkait berubah) + manual |
+| `.github/workflows/build-skia-android.yml` | Android (arm64-v8a, armeabi-v7a, x86_64) | push ke `main` (jika file terkait berubah) + manual |
 
-1. Install dependensi sistem + `depot_tools`
-2. `script/checkout.py` → clone Skia + checkout versi yang dipilih + terapkan patch
-3. `script/build.py` → konfigurasi `gn gen` (semua dependensi bundled, system libs OFF) + build `ninja`
-4. `script/archive.py` → kemas hasil build (`libskia.a`, header, `icudtl.dat`) ke ZIP
-5. Upload artifact: `Skia-<versi>-linux-<tipe>-x64.zip`
+Keduanya **hanya build untuk Linux runner** — workflow macOS sudah dihapus.
 
-## Workflow 2: `.github/workflows/build-skia-android.yml` (Android)
+## Cara pakai
 
-File YAML terpisah khusus build Android (ubuntu-24.04 + NDK r27c):
+### 1. Build manual (paling umum)
+1. Buka repo → tab **Actions**.
+2. Pilih workflow **"Build Skia"** (Linux) atau **"Build Skia Android"**.
+3. Klik **Run workflow** (tombol biru di kanan atas).
+4. Isi parameter:
+   - **Versi Skia**: default `chrome/m158`. Bisa juga `main`, `chrome/m150`, atau commit hash.
+   - **Tipe build**: `Release` atau `Debug`.
+   - *(Android saja)* **ABI**: pilih `arm64-v8a` saja saat uji coba pertama (lebih cepat), atau `arm64-v8a,armeabi-v7a,x86_64` (default).
+5. Tunggu sampai selesai (±20–60 menit tergantung ABI & cache).
 
-1. `script/checkout.py` → clone Skia (versi default `chrome/m158`)
-2. `script/download_ndk.py` → unduh & ekstrak Android NDK r27c (~600 MB)
-3. `script/build_android.py` → `gn gen target_os="android"` per ABI (GLES on, Vulkan off, semua dependensi bundled, clang NDK) lalu `ninja`; object file digabung menjadi satu `libskia.a` per ABI via `llvm-ar`
-4. `script/archive_android.py` → kemas `libs/<abi>/libskia.a` + header publik ke ZIP
-5. Upload artifact: `Skia-<versi>-android-<tipe>.zip`
+### 2. Build otomatis
+Push perubahan ke branch `main` yang menyentuh file workflow atau `script/**`
+akan memicu build otomatis dengan nilai default (`chrome/m158`, Release).
 
-ABI default: `arm64-v8a, armeabi-v7a, x86_64` (bisa dipilih lewat input `abis`).
+### 3. Ambil hasilnya (artifact)
+Setelah run hijau ✅:
+1. Buka halaman run tersebut di tab **Actions** (scroll ke bawah).
+2. Bagian **Artifacts** → klik nama ZIP, misal:
+   - `Skia-chrome_m158-linux-Release-x64` (~636 MB)
+   - `Skia-chrome_m158-android-Release` (~236 MB)
+3. Ekstrak ZIP-nya. Struktur isinya:
 
-## Trigger
+```
+Skia-<versi>-<platform>-<tipe>.zip
+├── libs/<abi>/libskia.a        # Android: per ABI | Linux: libskia.a dll.
+├── res/<abi>/icudtl.dat        # data ICU (wajib disertakan saat runtime)
+├── include/                    # public headers  (include/core/*.h dll.)
+├── modules/…                   # header skottie, skparagraph, svg, dll.
+├── src/                        # header internal yg di-#include publik header
+└── LICENSE
+```
 
-- **Run workflow** (manual) dengan input:
-  - `skia_version`: `main` | `chrome/mNNN` (mis. `chrome/m158`) | commit hash (default `chrome/m158`)
-  - `build_type`: `Release` atau `Debug`
-  - `abis` (khusus workflow Android): kombinasi ABI yang diinginkan
+## Cara memakai library hasil build
 
-## Catatan
+### Android (CMake / NDK)
+```cmake
+# CMakeLists.txt aplikasi Anda
+set(SKIA_ROOT ${CMAKE_SOURCE_DIR}/third_party/skia)   # hasil ekstrak ZIP
 
-- Build Skia cukup berat; runner gratis GitHub Actions mungkin mendekati batas waktu. Pertimbangkan self-hosted runner untuk kecepatan lebih baik.
-- Artifact berisi library statis `libskia.a`, header publik Skia, dan data pendukung dalam format ZIP.
+add_library(skia STATIC IMPORTED)
+set_target_properties(skia PROPERTIES
+    IMPORTED_LOCATION ${SKIA_ROOT}/libs/${ANDROID_ABI}/libskia.a)
+
+target_include_directories(app PRIVATE
+    ${SKIA_ROOT}            # penting: root, bukan hanya include/,
+                            # karena ada header yg meng-#include "src/core/Sk*.h"
+    ${SKIA_ROOT}/include)
+
+find_library(ANDROID_LIB android log)
+target_link_libraries(app PRIVATE skia ${ANDROID_LIB})
+```
+
+Contoh kode minimal:
+```cpp
+#include "include/core/SkCanvas.h"
+#include "include/core/SkSurface.h"
+
+sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(512, 512));
+SkCanvas* canvas = surface->getCanvas();
+canvas->clear(SK_ColorWHITE);
+```
+
+> Jangan lupa salin `res/<abi>/icudtl.dat` ke aset aplikasi bila memakai
+> teks/skottie (inisialisasi ICU dari buffer/file tsb).
+
+### Linux desktop
+```bash
+g++ app.cpp -I. -std=c++17 \
+    third_party/skia/libskia.a \
+    -lpthread -ldl -o app
+```
+(`-I.` mengarah ke root hasil ekstrak agar `#include "src/..."` ikut ketemu.)
+
+## Versi & kompatibilitas
+- Default: `chrome/m158` (pin versi stabil Chrome).
+- Ubah lewat input **Versi Skia** saat Run workflow — tanpa perlu ubah kode.
+- Patch JetBrains di `patches/` diterapkan otomatis bila relevan dengan versi terpilih.
+
+## Catatan penting
+- **Kuota Actions**: build penuh multi-ABI mahal. Untuk iterasi awal, pilih ABI
+  `arm64-v8a` saja. Runner macOS sengaja tidak dipakai (dihitung 10× kuota).
+- **Timeout**: tiap job dibatasi 360 menit.
+- Artifact disimpan **14 hari**; setelah itu hilang — unduh dan simpan di release/CDN bila perlu jangka panjang.
+- Depot_tools & checkout Skia di-cache per runner untuk mempercepat run berikutnya.
+
+## Struktur repo
+```
+.github/workflows/
+├── build-skia.yml            # Linux desktop (GN + ninja via script/build.py)
+└── build-skia-android.yml    # Android multi-ABI (NDK r27c via script/build_android.py)
+script/
+├── checkout.py               # clone Skia + git-sync-deps (+ bootstrap depot_tools)
+├── download_ndk.py           # unduh & ekstrak Android NDK r27c
+├── build.py                  # gn gen + ninja (Linux)
+├── build_android.py          # gn gen + ninja per ABI (Android)
+├── archive.py                # kemas ZIP (Linux)
+└── archive_android.py        # kemas ZIP per ABI (Android)
+patches/                      # patch kompabilitas gaya JetBrains
+```

@@ -69,9 +69,9 @@ def main():
         "modules/skshaper/include/*.h",
         "modules/skshaper/src/*.h",
         "modules/svg/include/*.h",
-        "src/core/*.h",
-        "src/gpu/gl/*.h",
-        "src/utils/*.h",
+        # src/**/*.h diperlukan public header (mis. SkRefCnt, SkTArray) yang
+        # meng-#include "src/core/Sk*.h" -> wajib disertakan agar ZIP siap compile.
+        "src/**/*.h",
         "third_party/externals/freetype/include/**/*",
         "third_party/externals/harfbuzz/src/*.h",
         "third_party/externals/icu/source/common/**/*.h",
