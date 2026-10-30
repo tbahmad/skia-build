@@ -107,22 +107,34 @@ jobs:
           else
             GN_ARGS="is_debug=false"
           fi
+          # NOTE: sengaja TIDAK mengaktifkan fontconfig/expat/freetype dari sistem —
+          # header bawaan runner (versi tidak konsisten dengan tgz yang di-extract
+          # dpkg) membuat compile gagal. Skia pakai bundled dependencies
+          # (third_party/externals/*) yang versinya sudah teruji. Vulkan juga dimatikan
+          # karena header loader-nya di image runner sering bermasalah.
           bin/gn gen "out/${BUILD_MODE}" --args="${GN_ARGS}
             skia_use_dawn=false
+            skia_use_expat=false
+            skia_use_fontconfig=false
+            skia_use_freetype=false
             skia_use_gl=true
-            skia_use_vulkan=true
-            skia_use_expat=true
-            skia_use_fontconfig=true
-            skia_use_freetype=true
             cc=\"clang\" cxx=\"clang++\"
           "
 
       - name: Build (ninja)
         run: |
-          set -euxo pipefail
+          set -uo pipefail
           export PATH="$DEPOT_TOOLS_DIR:$PATH"
           cd "$SKIA_DIR"
-          ninja -C "out/${BUILD_MODE}" -j "$(nproc)"
+          # Simpan log lengkap; jika build gagal, cetak blok error agar penyebab
+          # sebenarnya terlihat di Actions log (bukan hanya ringkasan ninja).
+          if ninja -C "out/${BUILD_MODE}" -j "$(nproc)" 2>&1 | tee ninja-build.log; then
+            exit 0
+          else
+            echo "::error::ninja build gagal - menampilkan konteks error:"
+            grep -B 5 -A 40 "error:" ninja-build.log | tail -n 300 || true
+            exit 1
+          fi
 
       - name: Smoke test (dm, non-fatal)
         continue-on-error: true
@@ -217,8 +229,12 @@ jobs:
           else
             GN_ARGS="is_debug=false"
           fi
+          # NOTE: sama seperti Linux — hanya bundled deps + backend Metal/GL.
           bin/gn gen "out/${BUILD_MODE}" --args="${GN_ARGS}
             skia_use_dawn=false
+            skia_use_expat=false
+            skia_use_fontconfig=false
+            skia_use_freetype=false
             skia_use_metal=true
             skia_use_gl=true
             cc=\"clang\" cxx=\"clang++\"
@@ -226,10 +242,18 @@ jobs:
 
       - name: Build (ninja)
         run: |
-          set -euxo pipefail
+          set -uo pipefail
           export PATH="$DEPOT_TOOLS_DIR:$PATH"
           cd "$SKIA_DIR"
-          ninja -C "out/${BUILD_MODE}" -j "$(sysctl -n hw.ncpu)"
+          # Simpan log lengkap; jika build gagal, cetak blok error agar penyebab
+          # sebenarnya terlihat di Actions log (bukan hanya ringkasan ninja).
+          if ninja -C "out/${BUILD_MODE}" -j "$(sysctl -n hw.ncpu)" 2>&1 | tee ninja-build.log; then
+            exit 0
+          else
+            echo "::error::ninja build gagal - menampilkan konteks error:"
+            grep -B 5 -A 40 "error:" ninja-build.log | tail -n 300 || true
+            exit 1
+          fi
 
       - name: Package artifacts
         run: |
