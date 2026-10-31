@@ -9,7 +9,7 @@ Perbedaan dari versi JetBrains (m93):
     patch sudah tidak relevan di versi baru (hanya warning).
 """
 
-import argparse, os, pathlib, re, subprocess, sys
+import argparse, os, pathlib, re, shutil, subprocess, sys
 
 SKIA_URL = "https://skia.googlesource.com/skia"
 
@@ -41,27 +41,77 @@ def main():
     os.makedirs(cipd_root, exist_ok=True)
     env["CIPD_CACHE_ROOT"] = cipd_root       # cache lokal agar unduhan tidak dobel
     reldir = os.path.join(dt, "python3_bin_reldir.txt")
+
+    def _run_bootstrap(script_name):
+        """Jalankan script bootstrap depot_tools, kompatibel Linux & Windows.
+
+        Di Windows, 'ensure_bootstrap' / 'update_depot_tools' adalah shell script
+        bash TANPA ekstensi -> subprocess langsung memicu WinError 193.
+        Gunakan 'ensure_bootstrap.bat' bila ada; kalau tidak, skip bootstrap
+        (gn/ninja akan disediakan dari PATH sistem oleh workflow).
+        """
+        bat = os.path.join(dt, script_name + ".bat")
+        sh = os.path.join(dt, script_name)
+        if os.name == "nt":
+            if os.path.isfile(bat):
+                return subprocess.run([bat], env=env, shell=True)
+            print(f"> {script_name}.bat tidak ditemukan; skip (Windows).")
+            class _R:  returncode = 0
+            return _R()
+        return subprocess.run([sh], env=env)
+
     if not os.path.exists(reldir):
         print("> Bootstrapping depot_tools ...")
-        r = subprocess.run([os.path.join(dt, "ensure_bootstrap")], env=env)
+        r = _run_bootstrap("ensure_bootstrap")
         if r.returncode != 0 and not os.path.exists(reldir):
             # fallback: panggil update_depot_tools (mengunduh gn/ninja juga)
-            subprocess.check_call([os.path.join(dt, "update_depot_tools")], env=env)
-        if not os.path.exists(reldir):
+            r2 = _run_bootstrap("update_depot_tools")
+            if r2.returncode != 0 and os.name == "nt":
+                pass  # di bawah ditangani lewat cek gn/ninja
+        if not os.path.exists(reldir) and os.name == "nt":
+            # Windows tanpa .bat: pastikan ninja tersedia dari PATH sistem.
+            # gn akan di-compile dari source Skia setelah checkout (lihat bawah).
+            if not __import__("shutil").which("ninja"):
+                sys.exit("ERROR: depot_tools gagal di-bootstrap dan 'ninja' tidak ada "
+                         "di PATH. Pastikan step 'Install ninja' di workflow berhasil.")
+            print("> Bootstrap depot_tools dilewati (Windows); memakai ninja dari PATH, "
+                  "gn akan di-compile dari source Skia.")
+        elif not os.path.exists(reldir):
             sys.exit("ERROR: depot_tools gagal di-bootstrap (python3_bin_reldir.txt tidak ada)")
     else:
         print("> depot_tools sudah ter-bootstrap.")
+
+    def build_gn_from_source():
+        """Compile gn dari tools/gn bawaan Skia pakai MSVC (fallback Windows)."""
+        gn_src = os.path.abspath(os.path.join("skia", "tools", "gn"))
+        if not os.path.isdir(gn_src):
+            return None
+        print("> Meng-compile gn dari source (tools/gn) ...")
+        rc = subprocess.call([sys.executable, "bootstrap.py"], cwd=gn_src, env=env)
+        cand = os.path.join(gn_src, "Release_x64", "gn.exe")
+        if rc != 0 or not os.path.isfile(cand):
+            return None
+        dst = os.path.join(dt, "gn.exe")
+        shutil.copy(cand, dst)
+        print(f"> gn hasil compile: {dst}")
+        return dst
 
     # Pastikan binari gn & ninja tersedia (build.py memakainya tanpa jaringan).
     def _is_exec(p):
         return os.path.isfile(p) and os.access(p, os.X_OK)
 
-    sys_bin = {t: __import__("shutil").which(t) for t in ("gn", "ninja")}
+    sys_bin = {t: shutil.which(t) for t in ("gn", "ninja")}
     for tool in ("gn", "ninja"):
         target = os.path.join(dt, tool + (".exe" if os.name == "nt" else ""))
         if _is_exec(target) or sys_bin[tool]:
             print(f"> {tool} sudah tersedia.", end=" ")
             print("(depot_tools)" if _is_exec(target) else "(PATH sistem)")
+            continue
+        if os.name == "nt":
+            # Di Windows tanpa bootstrap depot_tools, skip prefetch via
+            # gcs (butuhnya CIPD). gn akan di-compile dari source setelah
+            # checkout; ninja dipasok oleh step workflow.
+            print(f"> {tool}: prefetch dilewati (Windows); ditangani langkah lain.")
             continue
         r = subprocess.run([os.path.join(dt, "download_from_google_storage"),
                             "--no_auth", "--recursive", "--num_threads", "8",
@@ -103,6 +153,14 @@ def main():
 
     head = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
     print("> HEAD:", head[:10])
+
+    # --- gn untuk Windows: compile dari source bila belum ada di mana pun ----
+    if os.name == "nt" and not shutil.which("gn") \
+            and not os.path.isfile(os.path.join(dt, "gn.exe")):
+        if build_gn_from_source() is None:
+            os.chdir(os.pardir)
+            sys.exit("ERROR: gn tidak tersedia di Windows (tidak ada di PATH, "
+                     "depot_tools, dan gagal di-compile dari tools/gn).")
 
     # --- patches -------------------------------------------------------------
     # Catatan penting: gunakan `git apply` BUKAN `git apply --3way`.

@@ -77,6 +77,22 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install ninja (GitHub release)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $tools = "$env:GITHUB_WORKSPACE\ci-tools"
+          New-Item -ItemType Directory -Force -Path $tools | Out-Null
+          # ninja resmi dari pembuatnya (ninja-build); arsip zip berisi exe saja.
+          # gn TIDAK diunduh di sini: checkout.py akan meng-compile gn dari
+          # source Skia (tools/gn) memakai MSVC — cara paling andal di Windows.
+          Invoke-WebRequest -Uri 'https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip' `
+            -OutFile "$env:RUNNER_TEMP\ninja.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\ninja.zip" -DestinationPath $tools -Force
+          if (-not (Test-Path "$tools\ninja.exe")) { throw "ninja.exe tidak terbentuk" }
+          "$tools" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding ascii
+          Write-Host "ninja siap di: $tools"
+
       - name: Show toolchain info
         run: |
           which git python ninja gn 2>/dev/null || true
