@@ -51,8 +51,9 @@ def main():
         # --- Dukungan GPU (GL) aktif di SEMUA platform ---------------------
         # skia_use_gl=true  : backend OpenGL/GLES klasik via
         #                     include/gpu/gl/ (SkEGLImageBackend.h, dsk, dll.)
-        # skia_enable_gpu_debug-tools=true : GrDirectContexts::MakeGL /
+        # skia_enable_gpu_debug_tools=true : GrDirectContexts::MakeGL /
         #                     MakeDebugGL tanpa butuh loader EGL sistem.
+        #                     (NB: nama GN memakai underscore, bukan dash.)
         # Catatan: skia_use_egl HANYA diaktifkan di platform yang punya header
         # EGL (Linux/Android). Di Windows, egl.h hanya ada di dalam bundle
         # ANGLE sehingga src/gpu/.../GrGLMakeEGLInterface.cpp gagal kompilasi;
@@ -60,7 +61,7 @@ def main():
         # Backend GPU lain per-platform: Vulkan (linux/android/win),
         # Direct3D+ANGLE (win), Metal (macos) — header gpu/ tetap utuh di ZIP.
         'skia_use_gl=true',
-        'skia_enable_gpu_debug-tools=true',
+        'skia_enable_gpu_debug_tools=true',
         'skia_enable_gpu=true',
     ]
 
