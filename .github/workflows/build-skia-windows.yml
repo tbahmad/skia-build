@@ -1,0 +1,135 @@
+# Build Skia for Windows — gaya JetBrains/skia-build (updated)
+#
+# Terpisah dari build-skia.yml (Linux desktop) dan build-skia-android.yml.
+# Pipeline: checkout.py -> build.py -> archive.py  (skrip yang sama dengan
+# Linux; build.py sudah punya cabang target OS "windows": MSVC + ninja bawaan
+# runner, dependency di-bundle).
+#
+# Hasil: libskia.lib + modul (skottie, skparagraph, svg, dll) + seluruh
+# header, dikemas ke ZIP lalu dipublikasikan ke GitHub Releases (publik).
+name: Build Skia Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-skia-windows.yml'
+      - 'script/checkout.py'
+      - 'script/build.py'
+      - 'script/archive.py'
+  workflow_dispatch:
+    inputs:
+      skia_version:
+        description: "Versi Skia: main | chrome/mNNN (mis. chrome/m158) | mNNN-sha | commit hash"
+        required: false
+        default: "chrome/m158"
+        type: string
+      build_type:
+        description: "Tipe build"
+        required: false
+        default: "Release"
+        type: choice
+        options:
+          - Release
+          - Debug
+
+env:
+  SKIA_VERSION: ${{ github.event.inputs.skia_version || 'chrome/m158' }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+  DEPOT_TOOLS_UPDATE: "0"
+
+jobs:
+  windows:
+    name: Windows (${{ github.event.inputs.build_type || 'Release' }} x64)
+    runs-on: windows-2022
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash -el {0}   # shell login agar environment MSVC (vcvars) bertahan antar step
+    steps:
+      - name: Checkout this repo (script + patches)
+        uses: actions/checkout@v4
+
+      - name: Add MSVC to PATH (vswhere + vcvars64)
+        run: |
+          set -euo pipefail
+          VS_PATH=$("$PROGRAMFILES/x86/Microsoft Visual Studio/Installer/vswhere.exe" \
+            -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+            -property installationPath)
+          echo "Visual Studio di: $VS_PATH"
+          cmd //c "call \"$(cygpath -w "$VS_PATH/VC/Auxiliary/Build/vcvars64.bat")\" && set" \
+            | grep -E '^(PATH=|INCLUDE=|LIB=|LIBPATH=)' >> "$GITHUB_ENV"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Show toolchain info
+        run: |
+          which git python ninja gn 2>/dev/null || true
+          python --version
+          cl 2>&1 | head -1 || echo "cl tidak ada di PATH (gn akan pakai konfigurasi sendiri)"
+
+      - name: Checkout Skia (script/checkout.py)
+        run: python script/checkout.py --version "$SKIA_VERSION"
+
+      - name: Build Skia (script/build.py)
+        run: python script/build.py --build-type "$BUILD_TYPE"
+
+      - name: Archive (script/archive.py)
+        run: python script/archive.py --version "$SKIA_VERSION" --build-type "$BUILD_TYPE"
+
+      - name: Compute safe artifact name
+        run: |
+          SAFE_NAME=$(python -c 'import re,sys; print(re.sub(r"[^A-Za-z0-9._+-]", "_", sys.argv[1]))' "Skia-${SKIA_VERSION}-windows-${BUILD_TYPE}-x64")
+          echo "ARTIFACT_NAME=${SAFE_NAME}" >> "$GITHUB_ENV"
+          echo "Artifact name: ${SAFE_NAME}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "*.zip"
+          retention-days: 14
+
+  # Publikasikan ZIP ke halaman Releases agar bisa diunduh publik tanpa login.
+  release:
+    name: Publish to GitHub Releases
+    needs: windows
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'Skia-*windows*'
+          merge-multiple: true
+          path: dist
+
+      - name: List files
+        run: ls -la dist/
+
+      - name: Create / update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: skia-${{ env.SKIA_VERSION }}
+          name: "Skia ${{ env.SKIA_VERSION }} binaries"
+          body: |
+            Prebuilt static binaries of Skia (${{ env.SKIA_VERSION }}), rebuilt automatically by GitHub Actions.
+
+            | Platform | Arsitektur | Isi |
+            |---|---|---|
+            | Linux | x64 | `libskia.a` + headers |
+            | Android | arm64-v8a, armeabi-v7a, x86_64 | `libskia.a` per ABI + headers |
+            | Windows | x64 | `skia.lib` + headers (MSVC) |
+
+            Setiap ZIP berisi library statis, `icudtl.dat`, dan seluruh header
+            (`include/`, `src/**/*.h`, modul, third_party bundled) sehingga siap
+            dipakai compile.
+          files: dist/*
+          draft: false
+          prerelease: false
+          makeid: false
+          fail_on_unmatched_files: true

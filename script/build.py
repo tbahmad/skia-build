@@ -59,7 +59,14 @@ def main():
             gn_args.append('extra_cflags=["-stdlib=libc++"]')
         else:
             gn_args.append('extra_cflags=["-stdlib=libc++", "-mmacosx-version-min=10.15"]')
-    elif system == "linux":
+    elif system == "windows":
+        # MSVC + ninja dari PATH (vsdevcmd sudah diaktifkan oleh workflow).
+        # Skia butuh RTTI untuk consumer C++ -> extra_cflags_cc=["-frtti"].
+        gn_args += [
+            'extra_cflags_cc=["-frtti"]',
+            'skia_use_direct3d=true',
+        ]
+    else:  # linux
         gn_args += [
             'cc="gcc"',
             'cxx="g++"',
@@ -68,26 +75,41 @@ def main():
 
     skia = os.path.join(root, "skia")
     dt = os.path.join(root, "depot_tools")
+    ext = ".exe" if system == "windows" else ""
 
     def find_tool(name):
         """Cari binari gn/ninja asli, hindari wrapper depot_tools yang butuh
         bootstrap (python3_bin_reldir.txt)."""
         import glob as _glob
-        # 1) hasil unduhan git-sync-deps: third_party/<name>/linux*/<name>
-        for cand in sorted(_glob.glob(os.path.join(skia, "third_party", name, "*", name))):
-            if os.access(cand, os.X_OK) and not os.path.isdir(cand):
+        from shutil import which
+
+        def usable(p):
+            if not p or os.path.isdir(p):
+                return False
+            # Di Windows, script .bat/.ps1 depot_tools tidak bisa dieksekusi
+            # via CreateProcess langsung -> hanya terima .exe.
+            if system == "windows":
+                return p.lower().endswith(".exe") and os.path.isfile(p)
+            return os.access(p, os.X_OK)
+
+        # 0) binari di PATH sistem (Windows: ninja.exe dari runner; gn bila ada)
+        w = which(name)
+        if usable(w):
+            return w
+        # 1) hasil unduhan git-sync-deps: third_party/<name>/<os>*/<name>[.exe]
+        for cand in sorted(_glob.glob(os.path.join(skia, "third_party", name, "*", name + ext))):
+            if usable(cand):
                 return cand
         # 2) binari CIPD di cache depot_tools
-        for cand in sorted(_glob.glob(os.path.join(dt, ".cipd", "**", name), recursive=True)):
-            if os.access(cand, os.X_OK) and not os.path.isdir(cand):
+        for cand in sorted(_glob.glob(os.path.join(dt, ".cipd", "**", name + ext), recursive=True)):
+            if usable(cand):
                 return cand
-        # 3) langsung dari PATH sistem (runner sudah install ninja-build; gn bisa ada)
-        from shutil import which
-        w = which(name)
-        if w:
-            return w
+        # 3) hasil prefetch checkout.py di folder depot_tools
+        cand = os.path.join(dt, name + ext)
+        if usable(cand):
+            return cand
         # 4) terakhir: wrapper depot_tools (mungkin memicu bootstrap saat dipanggil)
-        return os.path.join(dt, name + (".exe" if system == "windows" else ""))
+        return cand
 
     gn = find_tool("gn")
     ninja = find_tool("ninja")

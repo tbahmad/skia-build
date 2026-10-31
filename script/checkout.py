@@ -52,11 +52,20 @@ def main():
     else:
         print("> depot_tools sudah ter-bootstrap.")
 
-    # Prefetch binari gn & ninja lewat CIPD -> build.py tak lagi butuh network.
+    # Pastikan binari gn & ninja tersedia (build.py memakainya tanpa jaringan).
+    def _is_exec(p):
+        return os.path.isfile(p) and os.access(p, os.X_OK)
+
+    sys_bin = {t: __import__("shutil").which(t) for t in ("gn", "ninja")}
     for tool in ("gn", "ninja"):
+        target = os.path.join(dt, tool + (".exe" if os.name == "nt" else ""))
+        if _is_exec(target) or sys_bin[tool]:
+            print(f"> {tool} sudah tersedia.", end=" ")
+            print("(depot_tools)" if _is_exec(target) else "(PATH sistem)")
+            continue
         r = subprocess.run([os.path.join(dt, "download_from_google_storage"),
                             "--no_auth", "--recursive", "--num_threads", "8",
-                            "-o", os.path.join(dt, tool),
+                            "-o", target,
                             "skia/third_party/" + tool], env=env)
         if r.returncode != 0:
             print(f"WARNING: prefetch {tool} gagal; akan dicoba saat git-sync-deps/gn gen.")
