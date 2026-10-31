@@ -51,19 +51,26 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Add MSVC to PATH (vswhere + vcvars64)
+        shell: pwsh
         run: |
-          set -euo pipefail
-          # vswhere.exe ada di "Program Files (x86)" — cari lewat cygpath agar
-          # penamaan path Windows bisa dipakai di bash.
-          VSWHERE="$(cygpath -u "${PROGRAMFILES(X86):-${PROGRAMFILES:-/c/Program Files}/x86}")/Microsoft Visual Studio/Installer/vswhere.exe"
-          [ -x "$VSWHERE" ] || VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
-          VS_PATH=$("$VSWHERE" -latest -products '*' \
-            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
-            -property installationPath)
-          echo "Visual Studio di: $VS_PATH"
-          VCVARS="$(cygpath -w "$VS_PATH/VC/Auxiliary/Build/vcvars64.bat")"
-          cmd //c "call \"$VCVARS\" && set" \
-            | grep -E '^(PATH=|INCLUDE=|LIB=|LIBPATH=)' >> "$GITHUB_ENV"
+          $ErrorActionPreference = 'Stop'
+          # vswhere.exe selalu ada di "C:\Program Files (x86)\Microsoft Visual Studio\Installer"
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          if (-not (Test-Path $vswhere)) { throw "vswhere tidak ditemukan di $vswhere" }
+          $vsPath = & $vswhere -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
+          Write-Host "Visual Studio di: $vsPath"
+          $vcvars = Join-Path $vsPath 'VC\Auxiliary\Build\vcvars64.bat'
+          # Panggil vcvars64.bat lalu dump variabel environment hasil injeksinya
+          cmd /c "`"$vcvars`" >NUL 2>&1 && set" | ForEach-Object {
+            if ($_ -match '^(PATH|INCLUDE|LIB|LIBPATH)=(.*)$') {
+              Write-Host "Setting $($matches[1]) in env..."
+              [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+              "$($matches[1])=$($matches[2])" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            }
+          }
+          cl 2>&1 | Select-Object -First 1
 
       - name: Setup Python
         uses: actions/setup-python@v5
