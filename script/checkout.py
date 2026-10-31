@@ -155,10 +155,13 @@ def main():
     print("> HEAD:", head[:10])
 
     # --- gn untuk Windows: compile dari source bila belum ada di mana pun ----
+    # PENTING: blok ini harus dijalankan SETELAH skia ter-clone, karena
+    # sumbernya (skia/tools/gn) baru ada setelah clone. Kalau ditaruh sebelum
+    # clone, cek selalu gagal -> "ERROR: gn tidak tersedia di Windows".
     if os.name == "nt" and not shutil.which("gn") \
             and not os.path.isfile(os.path.join(dt, "gn.exe")):
+        os.chdir(os.path.abspath(os.pardir))  # keluar dari ./skia -> root repo
         if build_gn_from_source() is None:
-            os.chdir(os.pardir)
             sys.exit("ERROR: gn tidak tersedia di Windows (tidak ada di PATH, "
                      "depot_tools, dan gagal di-compile dari tools/gn).")
 
