@@ -53,11 +53,16 @@ jobs:
       - name: Add MSVC to PATH (vswhere + vcvars64)
         run: |
           set -euo pipefail
-          VS_PATH=$("$PROGRAMFILES/x86/Microsoft Visual Studio/Installer/vswhere.exe" \
-            -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
+          # vswhere.exe ada di "Program Files (x86)" — cari lewat cygpath agar
+          # penamaan path Windows bisa dipakai di bash.
+          VSWHERE="$(cygpath -u "${PROGRAMFILES(X86):-${PROGRAMFILES:-/c/Program Files}/x86}")/Microsoft Visual Studio/Installer/vswhere.exe"
+          [ -x "$VSWHERE" ] || VSWHERE="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          VS_PATH=$("$VSWHERE" -latest -products '*' \
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 \
             -property installationPath)
           echo "Visual Studio di: $VS_PATH"
-          cmd //c "call \"$(cygpath -w "$VS_PATH/VC/Auxiliary/Build/vcvars64.bat")\" && set" \
+          VCVARS="$(cygpath -w "$VS_PATH/VC/Auxiliary/Build/vcvars64.bat")"
+          cmd //c "call \"$VCVARS\" && set" \
             | grep -E '^(PATH=|INCLUDE=|LIB=|LIBPATH=)' >> "$GITHUB_ENV"
 
       - name: Setup Python
