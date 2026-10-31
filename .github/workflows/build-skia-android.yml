@@ -92,3 +92,47 @@ jobs:
           name: ${{ env.ARTIFACT_NAME }}
           path: "*android*.zip"
           retention-days: 14
+
+  # Publikasikan ZIP ke halaman Releases agar bisa diunduh publik tanpa login.
+  release:
+    name: Publish to GitHub Releases
+    needs: android
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'Skia-*android*'
+          merge-multiple: true
+          path: dist
+
+      - name: List files
+        run: ls -la dist/
+
+      - name: Create / update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: skia-${{ env.SKIA_VERSION }}
+          name: "Skia ${{ env.SKIA_VERSION }} binaries"
+          body: |
+            Prebuilt static binaries of Skia (${{ env.SKIA_VERSION }}), rebuilt automatically by GitHub Actions.
+
+            | Platform | Arsitektur | Isi |
+            |---|---|---|
+            | Linux | x64 | `libskia.a` + headers (GCC/Clang) |
+            | Android | arm64-v8a, armeabi-v7a, x86_64 | `libskia.a` per ABI + headers (NDK) |
+            | Windows | x64 | `skia.lib` + headers (MSVC) |
+
+            Setiap ZIP berisi library statis, `icudtl.dat`, dan seluruh header
+            (`include/`, `src/**/*.h`, modul, third_party bundled) sehingga siap
+            dipakai compile.
+
+            Unduh langsung (tanpa login): klik aset di bawah, atau gunakan URL
+            `https://github.com/tbahmad/skia-build/releases/download/<tag>/<file>.zip`.
+          files: dist/*
+          draft: false
+          prerelease: false
+          makeid: false
+          fail_on_unmatched_files: true
