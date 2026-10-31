@@ -81,8 +81,33 @@ def main():
     else:
         print("> depot_tools sudah ter-bootstrap.")
 
+    def fetch_gn_cipd():
+        """Unduh gn.exe resmi binarinya dari CIPD chrome-infra-packages.
+
+        Ini cara paling andal di Windows: tidak butuh depot_tools bootstrap
+        dan tidak perlu meng-compile ulang tools/gn dengan MSVC.
+        """
+        import urllib.request, zipfile, io
+        url = ("https://chrome-infra-packages.appspot.com/dl/"
+               "gn/gn/windows-amd64/+/latest")
+        dst_dir = os.path.join(dt, "cipd-bin")
+        os.makedirs(dst_dir, exist_ok=True)
+        dst = os.path.join(dst_dir, "gn.exe")
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "curl/8"})
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                blob = resp.read()
+            zf = zipfile.ZipFile(io.BytesIO(blob))
+            with zf.open("gn.exe") as src, open(dst, "wb") as out:
+                shutil.copyfileobj(src, out)
+        except Exception as e:  # noqa
+            print(f"WARNING: unduh gn dari CIPD gagal: {e}")
+            return None
+        print(f"> gn binari resmi CIPD: {dst}")
+        return dst
+
     def build_gn_from_source():
-        """Compile gn dari tools/gn bawaan Skia pakai MSVC (fallback Windows)."""
+        """Compile gn dari tools/gn bawaan Skia pakai MSVC (fallback terakhir)."""
         gn_src = os.path.abspath(os.path.join("skia", "tools", "gn"))
         if not os.path.isdir(gn_src):
             return None
@@ -154,16 +179,19 @@ def main():
     head = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()
     print("> HEAD:", head[:10])
 
-    # --- gn untuk Windows: compile dari source bila belum ada di mana pun ----
-    # PENTING: blok ini harus dijalankan SETELAH skia ter-clone, karena
-    # sumbernya (skia/tools/gn) baru ada setelah clone. Kalau ditaruh sebelum
-    # clone, cek selalu gagal -> "ERROR: gn tidak tersedia di Windows".
+    # --- gn untuk Windows: unduh binari resmi CIPD, fallback compile source --
+    # PENTING: blok ini dijalankan SETELAH skia ter-clone (fallback compile
+    # membutuhkan skia/tools/gn yang baru ada setelah clone).
     if os.name == "nt" and not shutil.which("gn") \
             and not os.path.isfile(os.path.join(dt, "gn.exe")):
         os.chdir(os.path.abspath(os.pardir))  # keluar dari ./skia -> root repo
-        if build_gn_from_source() is None:
+        gn_bin = fetch_gn_cipd()
+        if gn_bin is None:
+            gn_bin = build_gn_from_source()
+        if gn_bin is None:
             sys.exit("ERROR: gn tidak tersedia di Windows (tidak ada di PATH, "
-                     "depot_tools, dan gagal di-compile dari tools/gn).")
+                     "depot_tools, gagal diunduh dari CIPD, dan gagal "
+                     "di-compile dari tools/gn).")
 
     # --- patches -------------------------------------------------------------
     # Catatan penting: gunakan `git apply` BUKAN `git apply --3way`.

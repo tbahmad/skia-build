@@ -104,10 +104,13 @@ def main():
         for cand in sorted(_glob.glob(os.path.join(dt, ".cipd", "**", name + ext), recursive=True)):
             if usable(cand):
                 return cand
-        # 3) hasil prefetch checkout.py di folder depot_tools
+        # 3) hasil prefetch / unduhan CIPD checkout.py di folder depot_tools
         cand = os.path.join(dt, name + ext)
         if usable(cand):
             return cand
+        cipd_bin = os.path.join(dt, "cipd-bin", name + ext)
+        if usable(cipd_bin):
+            return cipd_bin
         # 4) terakhir: wrapper depot_tools (mungkin memicu bootstrap saat dipanggil)
         return cand
 

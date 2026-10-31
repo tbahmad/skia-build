@@ -84,12 +84,20 @@ jobs:
           $tools = "$env:GITHUB_WORKSPACE\ci-tools"
           New-Item -ItemType Directory -Force -Path $tools | Out-Null
           # ninja resmi dari pembuatnya (ninja-build); arsip zip berisi exe saja.
-          # gn TIDAK diunduh di sini: checkout.py akan meng-compile gn dari
-          # source Skia (tools/gn) memakai MSVC — cara paling andal di Windows.
+          # gn disediakan oleh script/checkout.py (unduhan binari resmi CIPD),
+          # tapi kami unduh juga di sini supaya ada di PATH sejak awal langkah.
           Invoke-WebRequest -Uri 'https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip' `
             -OutFile "$env:RUNNER_TEMP\ninja.zip"
           Expand-Archive -Path "$env:RUNNER_TEMP\ninja.zip" -DestinationPath $tools -Force
           if (-not (Test-Path "$tools\ninja.exe")) { throw "ninja.exe tidak terbentuk" }
+          try {
+            Invoke-WebRequest -Uri 'https://chrome-infra-packages.appspot.com/dl/gn/gn/windows-amd64/+/latest' `
+              -OutFile "$env:RUNNER_TEMP\gn.zip" -UserAgent 'curl/8'
+            Expand-Archive -Path "$env:RUNNER_TEMP\gn.zip" -DestinationPath $tools -Force
+            if (Test-Path "$tools\gn.exe") { Write-Host "gn siap di: $tools" }
+          } catch {
+            Write-Host "WARNING: unduh gn gagal ($_.) - checkout.py akan mencoba lagi."
+          }
           "$tools" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding ascii
           Write-Host "ninja siap di: $tools"
 
