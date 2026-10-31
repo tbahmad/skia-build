@@ -1,26 +1,61 @@
 #!/usr/bin/env python3
-"""Kemas hasil build Android menjadi zip (gaya archive.py JetBrains, di-update).
+"""Kemas hasil build Android menjadi ZIP dengan struktur rapi siap-pakai.
 
-Menyertakan per ABI:
-  - libskia.a gabungan (obj/libskia.a) atau semua *.a di out/<type>-<abi>/
-  - icudtl.dat (bila ada)
-Seluruh public headers disertakan sekali (tidak per-ABI).
+Struktur ZIP:
 
-Nama file: Skia-<versi>-android-<tipe>.zip  (karakter '/' disanitasi '_')
+  include/skia/            <- seluruh header (public + internal + dependency bundled)
+  lib/<abi>/               <- library statis per ABI (arm64-v8a, armeabi-v7a, x86_64)
+  bin/icudtl.dat           <- data ICU (sekali saja; ABI-independen)
+  LICENSE
+  README.txt               <- instruksi singkat integrasi ke proyek Android (CMake/NDK)
+
+Nama file: Skia-<versi>-android-<tipe>.zip ('/' disanitasi '_').
 """
 
 import argparse, os, pathlib, re, subprocess, sys, zipfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from archive import MODULES, collect_headers  # noqa: E402  (pakai logika yang sama)
+
 DEFAULT_ABIS = ["arm64-v8a", "armeabi-v7a", "x86_64"]
 
 
-def parents(path):
-    res = []
-    parent = path.parent
-    while "." != str(parent):
-        res.insert(0, parent)
-        parent = parent.parent
-    return res
+def find_libs_for_abi(out_dir):
+    """Semua *.a modul esensial + dependency bundled di out/<type>-<abi>/."""
+    libs = []
+    for p in sorted(pathlib.Path(out_dir).glob("*.a")):
+        base = p.name.lstrip("lib").replace(".a", "")
+        if base in MODULES:
+            libs.append(p)
+            continue
+        dep_prefixes = ("expat", "freetype", "harfbuzz", "icu", "jpeg", "png",
+                        "webp", "z", "sfntly")
+        if any(base.startswith(d) or base == d for d in dep_prefixes):
+            libs.append(p)
+    return libs
+
+
+README_TMPL = """Skia {version} - Android ({build_type})
+========================================================
+
+Isi paket:
+  include/skia/   seluruh header (public + internal + dependency bundled)
+  lib/<abi>/      library statis per ABI: {abis}
+  bin/icudtl.dat  data ICU (copy ke assets/ bila memakai SkUnicode)
+
+Integrasi CMake (Android NDK):
+  set(SKIA_DIR ${{CMAKE_SOURCE_DIR}}/third_party/skia)
+  target_include_directories(app PRIVATE ${{SKIA_DIR}}/include/skia)
+  target_link_libraries(app PRIVATE
+    ${{SKIA_DIR}}/lib/${{ANDROID_ABI}}/libskia.a
+    ${{SKIA_DIR}}/lib/${{ANDROID_ABI}}/libskottie.a   # dst. per modul
+    jnigraphics log android)
+
+Catatan:
+  - Header internal (src/) disertakan karena public header Skia
+    meng-#include path "src/core/...". Jangan hapus folder tersebut.
+  - Link library dari modul tertinggi ke dependency (skottie -> skia -> deps).
+"""
 
 
 def main():
@@ -36,93 +71,72 @@ def main():
     args = parser.parse_args()
     abis = [a.strip() for a in args.abis.split(",") if a.strip()]
 
-    # versi konkret dengan sha HEAD; sanitasi '/' -> '_'
     head = ""
     try:
         head = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()[:10]
     except Exception:
         pass
-    m = re.match(r"^m(\d+)", args.version)
-    version = f"m{m.group(1)}-{head}" if (m and head) else (args.version + ("-" + head if head else ""))
+    m = re.search(r"m(\d+)", args.version)
+    version = f"m{m.group(1)}-{head}" if (m and head) else \
+        (args.version.replace("/", "_") + ("-" + head if head else ""))
     version = version.replace("/", "_")
 
-    header_globs = [
-        "include/**/*",
-        "modules/particles/include/*.h",
-        "modules/skottie/include/*.h",
-        "modules/skottie/src/*.h",
-        "modules/skottie/src/animator/*.h",
-        "modules/skottie/src/effects/*.h",
-        "modules/skottie/src/layers/*.h",
-        "modules/skottie/src/layers/shapelayer/*.h",
-        "modules/skottie/src/text/*.h",
-        "modules/skparagraph/include/*.h",
-        "modules/skplaintexteditor/include/*.h",
-        "modules/skresources/include/*.h",
-        "modules/sksg/include/*.h",
-        "modules/skshaper/include/*.h",
-        "modules/skshaper/src/*.h",
-        "modules/svg/include/*.h",
-        # src/*.h diperlukan oleh beberapa public header (mis. SkRefCnt,
-        # SkTArray) yang meng-#include "src/core/Sk*.h". Tanpa ini, user
-        # akan kena error "'src/core/SkXXX.h' file not found" saat compile.
-        "src/**/*.h",
-        "third_party/externals/freetype/include/**/*",
-        "third_party/externals/harfbuzz/src/*.h",
-        "third_party/externals/icu/source/common/**/*.h",
-        "third_party/externals/libpng/*.h",
-        "third_party/externals/libwebp/src/**/*.h",
-        "third_party/externals/zlib/*.h",
-        "LICENSE",
-    ]
+    # kumpulkan library per ABI
+    abi_libs = {}
+    for abi in abis:
+        out_dir = pathlib.Path("out") / f"{args.build_type}-{abi}"
+        if not out_dir.is_dir():
+            print(f"> SKIP ABI {abi}: {out_dir} tidak ada")
+            continue
+        libs = find_libs_for_abi(out_dir)
+        if libs:
+            abi_libs[abi] = libs
+
+    if not abi_libs:
+        print(f"ERROR: tidak ada library hasil build di out/{args.build_type}-<abi>/. "
+              f"Jalankan build_android.py dulu.", file=sys.stderr)
+        return 1
+
+    headers = collect_headers(skia)
+    print(f"> ABI terarsip: {', '.join(abi_libs)} | {len(headers)} header")
 
     target = os.path.join(root, f"Skia-{version}-android-{args.build_type}.zip")
     print("> Writing", target)
 
     n = 0
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        dirs = set()
-
-        def add(path):
-            nonlocal n
-            p = pathlib.Path(path)
-            if not p.is_file():
-                return
-            for d in parents(p):
-                if d not in dirs:
-                    zf.write(str(d))
-                    dirs.add(d)
-            zf.write(str(p))
+        # 1) header -> include/skia/
+        for rel, p in headers:
+            zf.write(str(p), f"include/skia/{rel}")
             n += 1
 
-        # library & data per ABI
-        found_any = False
-        for abi in abis:
-            out_dir = f"out/{args.build_type}-{abi}"
-            combined = os.path.join(out_dir, "obj", "libskia.a")
-            if os.path.exists(combined):
-                zf.write(combined, f"libs/{abi}/libskia.a")
+        # 2) library per ABI -> lib/<abi>/
+        for abi, libs in abi_libs.items():
+            for p in libs:
+                zf.write(str(p), f"lib/{abi}/{p.name}")
                 n += 1
-                found_any = True
-            else:
-                for a in sorted(pathlib.Path(out_dir).glob("*.a")):
-                    zf.write(str(a), f"libs/{abi}/{a.name}")
-                    n += 1
-                    found_any = True
-            icu = os.path.join(out_dir, "icudtl.dat")
-            if os.path.exists(icu):
-                zf.write(icu, f"res/{abi}/icudtl.dat")
+
+        # 3) icudtl.dat (cari di ABI pertama yang punya) -> bin/
+        for abi in abi_libs:
+            icu = pathlib.Path("out") / f"{args.build_type}-{abi}" / "icudtl.dat"
+            if icu.is_file():
+                zf.write(str(icu), "bin/icudtl.dat")
                 n += 1
-        if not found_any:
-            sys.exit(f"ERROR: tidak ada library hasil build di out/{args.build_type}-<abi>/. "
-                     f"Jalankan build_android.py dulu.")
+                break
 
-        # headers (sekali saja)
-        for g in header_globs:
-            for path in pathlib.Path().glob(g):
-                add(path)
+        # 4) LICENSE
+        lic = pathlib.Path("LICENSE")
+        if lic.is_file():
+            zf.write(str(lic), "LICENSE")
+            n += 1
 
-    print(f"> {n} files archived")
+        # 5) README.txt
+        zf.writestr("README.txt",
+                    README_TMPL.format(version=version, build_type=args.build_type,
+                                       abis=", ".join(abi_libs)))
+        n += 1
+
+    print(f"> {n} files archived -> {os.path.basename(target)}")
     return 0
 
 

@@ -1,22 +1,116 @@
 #!/usr/bin/env python3
-"""Kemas hasil build + header menjadi zip (adaptasi script/archive.py JetBrains/skia-build).
+"""Kemas hasil build menjadi ZIP dengan struktur rapi siap-pakai untuk development.
 
-Menyertakan:
-  - library statis (*.a / *.lib) dan icudtl.dat dari direktori out/
-  - seluruh public headers (include/, src/*.h, modul, third_party yang di-bundle)
-  - file LICENSE agar artefak siap didistribusikan
+Struktur ZIP (sama untuk Linux / Android / Windows):
+
+  include/                 <- seluruh header yang dibutuhkan saat compile
+    skia/                  <- public headers + internal headers (SkCanvas, SkRefCnt, dst.)
+      core/ ..., modules/ ..., third_party/ ...
+  lib/<abi-or-x64>/        <- library statis hasil build (libskia.a, skottie.a, dst.)
+  bin/icudtl.dat           <- data ICU (dibutuhkan skia_use_icu)
+  LICENSE
+  README.txt               <- instruksi singkat link library ke proyek Anda
+
+Hanya binary + header yang diperlukan untuk memakai Skia yang disertakan;
+file build (obj, toolchain, test binaries) tidak ikut masuk arsip.
 """
 
 import argparse, os, pathlib, platform, re, sys, zipfile
 
+# modul esensial yang kita build (harus konsisten dengan script/build.py)
+MODULES = ["skia", "skottie", "skparagraph", "skshaper", "svg"]
 
-def parents(path):
-    res = []
-    parent = path.parent
-    while "." != str(parent):
-        res.insert(0, parent)
-        parent = parent.parent
-    return res
+# pola nama file library per sistem: di Linux/Android -> lib<mod>.a ; Windows -> <mod>.lib
+LIB_SUFFIX = {"linux": ".a", "android": ".a", "windows": ".lib"}
+
+
+def find_libs(out_dir, system):
+    """Cari library statis modul esensial + dependency bundled di direktori out."""
+    suffix = LIB_SUFFIX[system]
+    libs = []
+    for p in sorted(pathlib.Path(out_dir).glob("*" + suffix)):
+        name = p.name
+        # selalu sertakan modul utama
+        base = name.lstrip("lib").replace(suffix, "")
+        if base in MODULES:
+            libs.append(p)
+            continue
+        # dependency bundled yang ditautkan oleh libskia (perlu saat final link)
+        dep_prefixes = ("expat", "freetype", "harfbuzz", "icu", "jpeg", "png",
+                        "webp", "z", "sfntly")
+        if any(base.startswith(d) or base == d for d in dep_prefixes):
+            libs.append(p)
+    return libs
+
+
+def collect_headers(skia):
+    """Kumpulkan header publik + internal yang saling me-#include via path 'src/...'."""
+    patterns = [
+        "include/**/*.h",
+        "include/private/*.h",
+        "modules/particles/include/*.h",
+        "modules/skottie/include/*.h",
+        "modules/skottie/src/**/*.h",
+        "modules/skparagraph/include/*.h",
+        "modules/skplaintexteditor/include/*.h",
+        "modules/skresources/include/*.h",
+        "modules/sksg/include/*.h",
+        "modules/skshaper/include/*.h",
+        "modules/skshaper/src/*.h",
+        "modules/svg/include/*.h",
+        # internal headers WAJIB: public header meng-#include "src/core/Sk*.h"
+        "src/**/*.h",
+        # header dependency bundled yang terekspos lewat include publik
+        "third_party/externals/freetype/include/**/*.h",
+        "third_party/externals/harfbuzz/src/**/*.h",
+        "third_party/externals/icu/source/common/**/*.h",
+        "third_party/externals/icu/source/i18n/**/*.h",
+        "third_party/externals/libpng/*.h",
+        "third_party/externals/libwebp/src/**/*.h",
+        "third_party/externals/zlib/*.h",
+        "third_party/externals/expat/**/*.h",
+    ]
+    seen = set()
+    result = []
+    skia_path = pathlib.Path(skia)
+    for pat in patterns:
+        for p in skia_path.glob(pat):
+            if not p.is_file():
+                continue
+            rel = str(p.relative_to(skia_path))
+            if rel in seen:
+                continue
+            seen.add(rel)
+            result.append((rel, p))
+    return result
+
+
+README_TMPL = """Skia {version} - {system}/{arch} ({build_type})
+========================================================
+
+Isi paket:
+  include/skia/   seluruh header (public + internal + dependency bundled)
+  lib/{arch}/     library statis: {libs}
+  bin/icudtl.dat  data ICU (muat sekali saat startup bila memakai SkUnicode)
+
+Cara pakai (compile & link):
+  CXXFLAGS += -I<path-ekstrak>/include/skia
+  LDFLAGS  += -L<path-ekstrak>/lib/{arch} -lskia \\
+              -lskottie -lskparagraph -lskshaper -lsvg \\
+              (urutkan dari modul tertinggi ke dependency)
+
+Linux/Android contoh lengkap:
+  g++ app.cpp -I$SKIA_DIR/include/skia $SKIA_DIR/lib/{arch}/libskia.a \\
+      $SKIA_DIR/lib/{arch}/lib{mods}.a -lpthread -ldl -o app
+
+Windows (MSVC):
+  cl app.cpp /I<dir>\\include\\skia /link /LIBPATH:<dir>\\lib\\x64 skia.lib ...
+
+Catatan:
+  - Header internal (src/) disertakan karena public header Skia
+    meng-#include path "src/core/...". Jangan hapus folder tersebut.
+  - Generated header (modules/skvm) sudah termasuk di source tree m158.
+"""
 
 
 def main():
@@ -33,72 +127,81 @@ def main():
     args = parser.parse_args()
 
     system = {"Darwin": "macos", "Linux": "linux", "Windows": "windows"}[platform.system()]
+    # pada workflow Android, platform tetap Linux tapi artefaknya android per-ABI
+    if os.environ.get("SKIA_TARGET_OS") == "android":
+        system = "android"
+
     build_type = args.build_type
     machine = args.machine
 
-    # versi konkret: mNNN-<sha HEAD 10 karakter pertama> bila memungkinkan
     head = ""
     try:
         import subprocess
         head = subprocess.check_output(["git", "rev-parse", "HEAD"]).decode().strip()[:10]
     except Exception:
         pass
-    m = re.match(r"^m(\d+)", args.version)
-    version = f"m{m.group(1)}-{head}" if (m and head) else (args.version + ("-" + head if head else ""))
-    # nama file tidak boleh mengandung "/" (mis. ref "chrome/m148") -> ganti dengan "_"
+    m = re.search(r"m(\d+)", args.version)
+    version = f"m{m.group(1)}-{head}" if (m and head) else (args.version.replace("/", "_") +
+                                                            ("-" + head if head else ""))
     version = version.replace("/", "_")
 
-    out_dir = "out/" + build_type + "-" + machine
-    globs = [
-        out_dir + "/*.a",
-        out_dir + "/*.lib",
-        out_dir + "/icudtl.dat",
-        "include/**/*",
-        "modules/particles/include/*.h",
-        "modules/skottie/include/*.h",
-        "modules/skottie/src/*.h",
-        "modules/skottie/src/animator/*.h",
-        "modules/skottie/src/effects/*.h",
-        "modules/skottie/src/layers/*.h",
-        "modules/skottie/src/layers/shapelayer/*.h",
-        "modules/skottie/src/text/*.h",
-        "modules/skparagraph/include/*.h",
-        "modules/skplaintexteditor/include/*.h",
-        "modules/skresources/include/*.h",
-        "modules/sksg/include/*.h",
-        "modules/skshaper/include/*.h",
-        "modules/skshaper/src/*.h",
-        "modules/svg/include/*.h",
-        # src/**/*.h diperlukan public header (mis. SkRefCnt, SkTArray) yang
-        # meng-#include "src/core/Sk*.h" -> wajib disertakan agar ZIP siap compile.
-        "src/**/*.h",
-        "third_party/externals/freetype/include/**/*",
-        "third_party/externals/harfbuzz/src/*.h",
-        "third_party/externals/icu/source/common/**/*.h",
-        "third_party/externals/libpng/*.h",
-        "third_party/externals/libwebp/src/**/*.h",
-        "third_party/externals/zlib/*.h",
-        "LICENSE",
-    ]
+    # --- tentukan direktori out per platform ----------------------------------
+    if system == "android":
+        abi = os.environ.get("ANDROID_ABI", "arm64-v8a")
+        out_dir = pathlib.Path("out") / f"{build_type}-{abi}"
+        arch_name = abi
+    else:
+        out_dir = pathlib.Path("out") / f"{build_type}-{machine}"
+        arch_name = machine
 
-    target = os.path.join(root, f"Skia-{version}-{system}-{build_type}-{machine}.zip")
+    if not out_dir.is_dir():
+        print(f"ERROR: direktori out tidak ditemukan: {out_dir}", file=sys.stderr)
+        return 1
+
+    libs = find_libs(out_dir, system)
+    if not libs:
+        print(f"ERROR: tidak ada library statis di {out_dir}", file=sys.stderr)
+        return 1
+
+    headers = collect_headers(skia)
+    print(f"> Menemukan {len(libs)} library dan {len(headers)} header di {out_dir}")
+
+    target = os.path.join(root, f"Skia-{version}-{system}-{arch_name}-{build_type}.zip")
     print("> Writing", target)
 
     n = 0
     with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        dirs = set()
-        for glob in globs:
-            for path in pathlib.Path().glob(glob):
-                if not path.is_file():
-                    continue
-                for d in parents(path):
-                    if d not in dirs:
-                        zf.write(str(d))
-                        dirs.add(d)
-                zf.write(str(path))
-                n += 1
+        # 1) header -> include/skia/<path asli di repo skia>
+        for rel, p in headers:
+            zf.write(str(p), f"include/skia/{rel}")
+            n += 1
 
-    print(f"> {n} files archived")
+        # 2) library -> lib/<arch>/
+        for p in libs:
+            zf.write(str(p), f"lib/{arch_name}/{p.name}")
+            n += 1
+
+        # 3) icudtl.dat -> bin/
+        icu = out_dir / "icudtl.dat"
+        if icu.is_file():
+            zf.write(str(icu), "bin/icudtl.dat")
+            n += 1
+
+        # 4) LICENSE
+        lic = pathlib.Path("LICENSE")
+        if lic.is_file():
+            zf.write(str(lic), "LICENSE")
+            n += 1
+
+        # 5) README.txt singkat cara pakai
+        mods = " ".join(f"-l{m_}" for m_ in MODULES if m_ != "skia")
+        zf.writestr("README.txt",
+                    README_TMPL.format(version=version, system=system, arch=arch_name,
+                                       build_type=build_type,
+                                       libs=", ".join(p.name for p in libs), mods=mods.strip()))
+        n += 1
+
+    print(f"> {n} files archived -> {os.path.basename(target)}")
     return 0
 
 

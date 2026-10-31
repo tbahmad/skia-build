@@ -90,7 +90,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: "*android*.zip"
+          path: "Skia-*android*.zip"
           retention-days: 14
 
   # Publikasikan ZIP ke halaman Releases agar bisa diunduh publik tanpa login.

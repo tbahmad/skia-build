@@ -40,16 +40,32 @@ Setelah run hijau ✅:
 
    > Artifact hanya bertahan 14 hari dan butuh login GitHub untuk mengunduh.
    > Untuk unduhan **publik permanen**, lihat bagian **"Halaman Releases"** di bawah.
-3. Ekstrak ZIP-nya. Struktur isinya:
+3. Ekstrak ZIP-nya. Struktur isinya **rapi siap-pakai development** (binary +
+   header yang diperlukan saja — file build seperti `.o` dan test binary tidak ikut):
 
 ```
-Skia-<versi>-<platform>-<tipe>.zip
- Linux: libskia.a dll.| Linux: libskia.a dll.
-├── res/<abi>/icudtl.dat        # data ICU (wajib disertakan saat runtime)
-├── include/                    # public headers  (include/core/*.h dll.)
-├── modules/…                   # header skottie, skparagraph, svg, dll.
-├── src/                        # header internal yg di-#include publik header
-└── LICENSE
+Skia-<versi>-<platform>-<arch>-<tipe>.zip
+├── include/skia/               # SEMUA header untuk compile, dalam satu root:
+│   ├── include/                #   public headers (core/, codec/, gpu/, ...)
+│   ├── modules/                #   skottie, skparagraph, sksg, svg, dst.
+│   ├── src/                    #   internal headers (dibutuhkan #include publik)
+│   └── third_party/            #   header dependency bundled
+├── lib/<arch|abi>/             # library statis: libskia.a, libskottie.a,
+│                               # libskparagraph.a, deps bundled (z, png, icu, ...)
+├── bin/icudtl.dat              # data ICU (muat saat runtime bila pakai SkUnicode)
+├── LICENSE
+└── README.txt                  # contoh baris compile/link & integrasi CMake/NDK
+```
+
+Cara pakai singkat:
+
+```bash
+# Linux/Android
+g++ app.cpp -I$SKIA_DIR/include/skia $SKIA_DIR/lib/x64/lib*.a -lpthread -ldl -o app
+```
+```bat
+:: Windows (MSVC, dari Developer Prompt)
+cl app.cpp /I<dir>\include\skia /link /LIBPATH:<dir>\lib\x64 skia.lib skottie.lib ...
 ```
 
 ### 4. Halaman Releases (unduhan publik permanen) ⭐
