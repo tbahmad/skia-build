@@ -52,7 +52,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             git curl unzip zip python3 pkg-config ninja-build gcc g++ \
-            libfontconfig1-dev libglu1-mesa-dev
+            libfontconfig1-dev libglu1-mesa-dev \
+            libvulkan-dev libegl1-mesa-dev libgles2-mesa-dev libgl1-mesa-dev
 
       - name: Checkout Skia (script/checkout.py)
         run: python3 script/checkout.py --version "$SKIA_VERSION"

@@ -48,6 +48,16 @@ def main():
         'skia_pdf_subset_harfbuzz=true',
         'skia_enable_skottie=true',
         'is_official_build=false',
+        # --- Dukungan GPU (GL) aktif di SEMUA platform ---------------------
+        # skia_use_gl=true  : backend OpenGL/GLES klasik via
+        #                     include/gpu/gl/ (SkEGLImageBackend.h, dsk, dll.)
+        # skia_use_egl=true : wrapper EGL untuk konteks GL di Linux/Android
+        #                     (header & libskia_gpu ter-compile dengan ini).
+        # Backend GPU lain per-platform: Vulkan (linux), Direct3D (win),
+        # Metal (macos) — semuanya ikut ter-arsip karena header gpu/ utuh.
+        'skia_use_gl=true',
+        'skia_use_egl=true',
+        'skia_enable_gpu=true',
     ]
 
     if system == "macos":
@@ -62,15 +72,20 @@ def main():
     elif system == "windows":
         # MSVC + ninja dari PATH (vsdevcmd sudah diaktifkan oleh workflow).
         # Skia butuh RTTI untuk consumer C++ -> extra_cflags_cc=["-frtti"].
+        # ANGLE dipakai agar gl+egl tetap valid di Windows (backend D3D utama).
         gn_args += [
             'extra_cflags_cc=["-frtti"]',
             'skia_use_direct3d=true',
+            'skia_use_angle=true',
         ]
     else:  # linux
         gn_args += [
             'cc="gcc"',
             'cxx="g++"',
             'extra_cflags_cc=["-frtti"]',
+            # Backend Vulkan juga diaktifkan (butuh header vulkan dari runner;
+            # tersedia di ubuntu-24.04 via apt "vulkan" atau bundled externals).
+            'skia_use_vulkan=true',
         ]
 
     skia = os.path.join(root, "skia")

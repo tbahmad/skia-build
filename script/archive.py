@@ -110,6 +110,27 @@ Catatan:
   - Header internal (src/) disertakan karena public header Skia
     meng-#include path "src/core/...". Jangan hapus folder tersebut.
   - Generated header (modules/skvm) sudah termasuk di source tree m158.
+
+Dukungan GPU (build ini AKTIF):
+  Backend yang ter-compile ke dalam libskia.a:
+    * OpenGL / OpenGL ES  -> include/skia/include/gpu/gl/ (SkGLBackend.h, dsk)
+    * EGL wrapper         -> include/skia/include/gpu/gl/ (SkEGLImageBackend.h)
+    * Vulkan              -> include/skia/include/gpu/vk/  (linux/android/win*)
+    * Direct3D            -> include/skia/include/gpu/d3d/ (windows)
+    * Metal               -> include/skia/include/gpu/mtl/ (macos)
+  (* sesuai platform build masing-masing; daftar lengkap lihat args gn di log)
+
+  Contoh minimal render GL (Linux):
+    #include "include/core/SkSurface.h"
+    #include "include/gpu/GpuTypes.h"
+    #include "include/gpu/GrDirectContext.h"
+    #include "include/gpu/gl/GrGLInterface.h"
+    ...
+    auto ctx = GrDirectContexts::MakeGL(GrGLInterfaces::MakeNative());
+  Link tambahan saat final link aplikasi (library sistem, BUKAN dari zip):
+    Linux   : -lGL -lEGL            (libgl1-mesa-dev / libegl1-mesa-dev)
+    Android : -lGLESv2 -lEGL        (cukup find_library GLESv2 EGL di CMake)
+    Windows : opengl32.lib          (SDK bawaan; atau D3D11 via backend direct3d)
 """
 
 
