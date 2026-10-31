@@ -51,12 +51,16 @@ def main():
         # --- Dukungan GPU (GL) aktif di SEMUA platform ---------------------
         # skia_use_gl=true  : backend OpenGL/GLES klasik via
         #                     include/gpu/gl/ (SkEGLImageBackend.h, dsk, dll.)
-        # skia_use_egl=true : wrapper EGL untuk konteks GL di Linux/Android
-        #                     (header & libskia_gpu ter-compile dengan ini).
-        # Backend GPU lain per-platform: Vulkan (linux), Direct3D (win),
-        # Metal (macos) — semuanya ikut ter-arsip karena header gpu/ utuh.
+        # skia_enable_gpu_debug-tools=true : GrDirectContexts::MakeGL /
+        #                     MakeDebugGL tanpa butuh loader EGL sistem.
+        # Catatan: skia_use_egl HANYA diaktifkan di platform yang punya header
+        # EGL (Linux/Android). Di Windows, egl.h hanya ada di dalam bundle
+        # ANGLE sehingga src/gpu/.../GrGLMakeEGLInterface.cpp gagal kompilasi;
+        # di sana GL berjalan lewat WGL/native dan Vulkan lewat loader bundled.
+        # Backend GPU lain per-platform: Vulkan (linux/android/win),
+        # Direct3D+ANGLE (win), Metal (macos) — header gpu/ tetap utuh di ZIP.
         'skia_use_gl=true',
-        'skia_use_egl=true',
+        'skia_enable_gpu_debug-tools=true',
         'skia_enable_gpu=true',
     ]
 
@@ -65,9 +69,11 @@ def main():
     target_os = os.environ.get("SKIA_TARGET_OS") or system
 
     if target_os == "android":
-        # Backend Vulkan juga diaktifkan untuk Android (Vulkan wajib tersedia
-        # di NDK; skia_use_vulkan hanya butuh header vulkan, bukan loader sistem).
-        gn_args += ['skia_use_vulkan=true']
+        # EGL selalu tersedia di NDK -> aktifkan wrapper EGL + Vulkan.
+        gn_args += [
+            'skia_use_egl=true',
+            'skia_use_vulkan=true',
+        ]
     elif system == "macos":
         gn_args += [
             'skia_use_metal=true',
@@ -80,13 +86,15 @@ def main():
     elif system == "windows":
         # MSVC + ninja dari PATH (vsdevcmd sudah diaktifkan oleh workflow).
         # Skia butuh RTTI untuk consumer C++ -> extra_cflags_cc=["-frtti"].
-        # ANGLE dipakai agar gl+egl tetap valid di Windows (backend D3D utama).
+        # Backend GPU Windows: Direct3D (native) + Vulkan (header & loader dari
+        # third_party/vulkan bundled hasil git-sync-deps, tidak butuh SDK).
+        # skia_use_egl sengaja TIDAK diaktifkan: header EGL/egl.h di Windows
+        # hanya ada dalam bundle ANGLE dan tidak diekspos ke include path,
+        # sehingga kompilasi src/gpu/gl/egl gagal (fatal error C1083).
+        # GL tetap bisa dipakai via WGL native atau lewat ANGLE/D3D.
         gn_args += [
             'extra_cflags_cc=["-frtti"]',
             'skia_use_direct3d=true',
-            'skia_use_angle=true',
-            # Backend Vulkan di Windows: header & loader diambil dari
-            # third_party/vulkan hasil git-sync-deps (bundled, tidak butuh SDK).
             'skia_use_vulkan=true',
         ]
     else:  # linux
@@ -94,8 +102,9 @@ def main():
             'cc="gcc"',
             'cxx="g++"',
             'extra_cflags_cc=["-frtti"]',
-            # Backend Vulkan juga diaktifkan (butuh header vulkan dari runner;
-            # tersedia di ubuntu-24.04 via apt "vulkan" atau bundled externals).
+            # Header EGL/Vulkan tersedia di runner (libegl1-mesa-dev,
+            # libvulkan-dev) -> wrapper EGL + backend Vulkan aktif.
+            'skia_use_egl=true',
             'skia_use_vulkan=true',
         ]
 

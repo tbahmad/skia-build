@@ -115,6 +115,8 @@ Dukungan GPU (build ini AKTIF):
   Backend yang ter-compile ke dalam libskia.a:
     * OpenGL / OpenGL ES  -> include/skia/include/gpu/gl/ (SkGLBackend.h, dsk)
     * EGL wrapper         -> include/skia/include/gpu/gl/ (SkEGLImageBackend.h)
+                             [AKTIF di Linux & Android; di Windows GL memakai
+                              WGL native / D3D, jadi tidak ada wrapper EGL]
     * Vulkan              -> include/skia/include/gpu/vk/  (linux/android/windows AKTIF di build ini)
     * Direct3D            -> include/skia/include/gpu/d3d/ (windows)
     * Metal               -> include/skia/include/gpu/mtl/ (macos)
@@ -135,7 +137,8 @@ Dukungan GPU (build ini AKTIF):
   Link tambahan saat final link aplikasi (library sistem, BUKAN dari zip):
     Linux   : -lGL -lEGL -lvulkan   (libgl1-mesa-dev / libegl1-mesa-dev / libvulkan1)
     Android : -lGLESv2 -lEGL -lvulkan (CMake NDK: find_library GLESv2 EGL vulkan)
-    Windows : opengl32.lib + vulkan-1.lib (atau D3D11 via backend direct3d)
+    Windows : opengl32.lib + vulkan-1.lib (GL via WGL native; Vulkan bundled;
+              atau backend Direct3D11 -> d3d11.lib dxgi.lib)
 """
 
 

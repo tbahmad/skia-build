@@ -61,7 +61,8 @@ Dukungan GPU yang ter-compile ke dalam `libskia.a` (semua build):
 
 | Backend | Linux | Android | Windows | Header di ZIP |
 |---|---|---|---|---|
-| OpenGL / GLES + EGL | ✅ | ✅ | ✅ (via ANGLE) | `include/skia/include/gpu/gl/` |
+| OpenGL / GLES | ✅ | ✅ | ✅ (WGL native) | `include/skia/include/gpu/gl/` |
+| EGL wrapper | ✅ | ✅ | — | `include/skia/include/gpu/gl/` |
 | Vulkan | ✅ | ✅ | ✅ | `include/skia/include/gpu/vk/` |
 | Direct3D | — | — | ✅ | `include/skia/include/gpu/d3d/` |
 
