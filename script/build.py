@@ -60,7 +60,15 @@ def main():
         'skia_enable_gpu=true',
     ]
 
-    if system == "macos":
+    # Target OS bisa dioverride (Android: runner Linux tapi target_os="android"
+    # via env SKIA_TARGET_OS oleh workflow build-skia-android.yml).
+    target_os = os.environ.get("SKIA_TARGET_OS") or system
+
+    if target_os == "android":
+        # Backend Vulkan juga diaktifkan untuk Android (Vulkan wajib tersedia
+        # di NDK; skia_use_vulkan hanya butuh header vulkan, bukan loader sistem).
+        gn_args += ['skia_use_vulkan=true']
+    elif system == "macos":
         gn_args += [
             'skia_use_metal=true',
             'extra_cflags_cc=["-frtti"]',
@@ -77,6 +85,9 @@ def main():
             'extra_cflags_cc=["-frtti"]',
             'skia_use_direct3d=true',
             'skia_use_angle=true',
+            # Backend Vulkan di Windows: header & loader diambil dari
+            # third_party/vulkan hasil git-sync-deps (bundled, tidak butuh SDK).
+            'skia_use_vulkan=true',
         ]
     else:  # linux
         gn_args += [

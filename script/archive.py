@@ -115,7 +115,7 @@ Dukungan GPU (build ini AKTIF):
   Backend yang ter-compile ke dalam libskia.a:
     * OpenGL / OpenGL ES  -> include/skia/include/gpu/gl/ (SkGLBackend.h, dsk)
     * EGL wrapper         -> include/skia/include/gpu/gl/ (SkEGLImageBackend.h)
-    * Vulkan              -> include/skia/include/gpu/vk/  (linux/android/win*)
+    * Vulkan              -> include/skia/include/gpu/vk/  (linux/android/windows AKTIF di build ini)
     * Direct3D            -> include/skia/include/gpu/d3d/ (windows)
     * Metal               -> include/skia/include/gpu/mtl/ (macos)
   (* sesuai platform build masing-masing; daftar lengkap lihat args gn di log)
@@ -127,10 +127,15 @@ Dukungan GPU (build ini AKTIF):
     #include "include/gpu/gl/GrGLInterface.h"
     ...
     auto ctx = GrDirectContexts::MakeGL(GrGLInterfaces::MakeNative());
+  Contoh minimal render Vulkan:
+    #include "include/gpu/vk/VulkanBackend.h"
+    #include "include/gpu/vk/GrVkBackendContext.h"
+    ...
+    auto ctx = GrDirectContexts::MakeVulkan(backend_context, options);
   Link tambahan saat final link aplikasi (library sistem, BUKAN dari zip):
-    Linux   : -lGL -lEGL            (libgl1-mesa-dev / libegl1-mesa-dev)
-    Android : -lGLESv2 -lEGL        (cukup find_library GLESv2 EGL di CMake)
-    Windows : opengl32.lib          (SDK bawaan; atau D3D11 via backend direct3d)
+    Linux   : -lGL -lEGL -lvulkan   (libgl1-mesa-dev / libegl1-mesa-dev / libvulkan1)
+    Android : -lGLESv2 -lEGL -lvulkan (CMake NDK: find_library GLESv2 EGL vulkan)
+    Windows : opengl32.lib + vulkan-1.lib (atau D3D11 via backend direct3d)
 """
 
 

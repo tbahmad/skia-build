@@ -57,13 +57,15 @@ Catatan:
   - Link library dari modul tertinggi ke dependency (skottie -> skia -> deps).
 
 Dukungan GPU (build ini AKTIF):
-  Backend OpenGL ES + EGL sudah ter-compile ke dalam libskia.a per ABI.
-  Header: include/skia/include/gpu/gl/ (SkGLBackend.h, GrGLInterface, EGL).
-  Vulkan sengaja OFF di Android build ini.
-  Tautkan library sistem GL saat final link aplikasi:
-    target_link_libraries(app PRIVATE GLESv2 EGL)   # CMake/NDK
-  Contoh: GrDirectContexts::MakeGL(GrGLInterfaces::MakeNative())
+  Backend OpenGL ES + EGL dan Vulkan sudah ter-compile ke dalam libskia.a per ABI.
+  Header GL : include/skia/include/gpu/gl/ (SkGLBackend.h, GrGLInterface, EGL)
+  Header VK : include/skia/include/gpu/vk/ (VulkanBackend.h, GrVkBackendContext)
+  Tautkan library sistem saat final link aplikasi:
+    target_link_libraries(app PRIVATE GLESv2 EGL vulkan)   # CMake/NDK
+  Contoh GL : GrDirectContexts::MakeGL(GrGLInterfaces::MakeNative())
         -> include/gpu/GrDirectContext.h + include/gpu/gl/GrGLInterface.h
+  Contoh VK : GrDirectContexts::MakeVulkan(backend_context, options)
+        -> include/gpu/vk/VulkanBackend.h + include/gpu/vk/GrVkBackendContext.h
 """
 
 

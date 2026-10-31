@@ -57,6 +57,18 @@ Skia-<versi>-<platform>-<arch>-<tipe>.zip
 └── README.txt                  # contoh baris compile/link & integrasi CMake/NDK
 ```
 
+Dukungan GPU yang ter-compile ke dalam `libskia.a` (semua build):
+
+| Backend | Linux | Android | Windows | Header di ZIP |
+|---|---|---|---|---|
+| OpenGL / GLES + EGL | ✅ | ✅ | ✅ (via ANGLE) | `include/skia/include/gpu/gl/` |
+| Vulkan | ✅ | ✅ | ✅ | `include/skia/include/gpu/vk/` |
+| Direct3D | — | — | ✅ | `include/skia/include/gpu/d3d/` |
+
+Link tambahan library sistem saat final link aplikasi: Linux `-lGL -lEGL -lvulkan`,
+Android NDK `target_link_libraries(app PRIVATE GLESv2 EGL vulkan)`,
+Windows `opengl32.lib vulkan-1.lib`. Contoh kode ada di `README.txt` dalam ZIP.
+
 Cara pakai singkat:
 
 ```bash
