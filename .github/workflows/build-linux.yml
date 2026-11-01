@@ -33,12 +33,17 @@ jobs:
         with: { python-version: '3.11' }
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-          git curl unzip zip xz-utils ninja-build cmake \
-          libfontconfig1-dev libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxcursor-dev \
-          libxinerama-dev libxrandr-dev libxi-dev libxxf86vm-dev libglu1-mesa-dev \
-          mesa-common-dev libasound2-dev libpulse-dev libdbus-1-dev libibus-1.0-dev \
-          fcitx5-devel libudev-dev
+        run: |
+          sudo apt-get update
+          # paket wajib; opsional dicoba terpisah agar tidak memblokir kalau nama beda antar rilis Ubuntu
+          sudo apt-get install -y --no-install-recommends \
+            git curl unzip zip xz-utils ninja-build cmake \
+            libfontconfig1-dev libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxcursor-dev \
+            libxinerama-dev libxrandr-dev libxi-dev libxxf86vm-dev libglu1-mesa-dev \
+            mesa-common-dev libudev-dev
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libpulse-dev libdbus-1-dev libibus-1.0-dev libfcitx5-1-dev \
+            || echo "::warning:: SDL3 input-method/audio dev libs tidak lengkap; build tetap lanjut (SDL3 fallback)"
 
       - name: Cache depot_tools + NDK-free build cache
         uses: actions/cache@v4

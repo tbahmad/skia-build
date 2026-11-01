@@ -37,8 +37,12 @@ jobs:
         with: { python-version: '3.11' }
 
       - name: Install host build deps
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-          git curl unzip zip xz-utils ninja-build cmake
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git curl unzip zip xz-utils ninja-build cmake \
+            || { sleep 10; sudo apt-get update; sudo apt-get install -y --no-install-recommends \
+                 git curl unzip zip xz-utils ninja-build cmake; }
 
       - name: Set version env
         run: |
