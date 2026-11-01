@@ -19,38 +19,45 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     steps:
-      - name: Download all bundle artifacts from the triggering run
-        uses: actions/download-artifact@v4
-        with:
-          name: bundle-linux
-          path: dist
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Resolve run id & head sha
+        id: ctx
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            # manual: pakai run terbaru di branch ini
+            RID="${{ github.run_id }}"
+            SHA="${{ github.sha }}"
+          else
+            RID="${{ github.event.workflow_run.id }}"
+            SHA="${{ github.event.workflow_run.head_sha }}"
+          fi
+          echo "run_id=$RID" >> "$GITHUB_OUTPUT"
+          echo "sha=$SHA"   >> "$GITHUB_OUTPUT"
+          # default tag = parana-libs-<head sha pendek>
+          echo "auto_tag=parana-libs-${SHA:0:8}" >> "$GITHUB_OUTPUT"
 
-      - name: Download Windows + Android artifacts
+      - name: Download all bundle artifacts from the build run(s)
         uses: actions/download-artifact@v4
         with:
           pattern: 'bundle-*'
           path: dist
           merge-multiple: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.ctx.outputs.run_id }}
 
       - name: List collected archives
         run: ls -lh dist/
 
       - name: Resolve tag
         id: tag
+        env:
+          GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}'
         run: |
           if [ -n "${{ inputs.tag }}" ]; then
             echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           else
-            SHA=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}" \
-              | jq -r .head_sha)
-            echo "tag=bundle-$SHA" >> "$GITHUB_OUTPUT"
+            # cari head commit pada branch main agar tag stabil
+            echo "tag=${{ steps.ctx.outputs.auto_tag }}" >> "$GITHUB_OUTPUT"
           fi
-        env: { GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
 
       - name: Create / update release & upload archives
         uses: softprops/action-gh-release@v2
