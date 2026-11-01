@@ -1,3 +1,16 @@
+# --- build artifacts & staging (dihasilkan scripts/build.py + package.py) ---
 out/
+dist/
+
+# --- working area dependency (diunduh otomatis, lihat third_party/README.md) ---
+/third_party/*
+!/third_party/README.md
+/skia/
+/depot_tools/
+/android-ndk*/
+/build/
+/staging/
+
+# --- Python ---
 __pycache__/
 *.pyc
