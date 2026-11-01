@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Kemas hasil build Android menjadi ZIP dengan struktur rapi siap-pakai.
+"""Kemas hasil build Android menjadi arsip .tar.gz dengan struktur rapi siap-pakai.
 
-Struktur ZIP:
+Struktur arsip:
 
   include/skia/            <- seluruh header (public + internal + dependency bundled)
   lib/<abi>/               <- library statis per ABI (arm64-v8a, armeabi-v7a, x86_64)
@@ -9,10 +9,10 @@ Struktur ZIP:
   LICENSE
   README.txt               <- instruksi singkat integrasi ke proyek Android (CMake/NDK)
 
-Nama file: Skia-<versi>-android-<tipe>.zip ('/' disanitasi '_').
+Nama file: Skia-<versi>-android-<tipe>.tar.gz ('/' disanitasi '_').
 """
 
-import argparse, os, pathlib, re, subprocess, sys, zipfile
+import argparse, io, os, pathlib, re, subprocess, sys, tarfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from archive import MODULES, collect_headers  # noqa: E402  (pakai logika yang sama)
@@ -111,40 +111,44 @@ def main():
     headers = collect_headers(skia)
     print(f"> ABI terarsip: {', '.join(abi_libs)} | {len(headers)} header")
 
-    target = os.path.join(root, f"Skia-{version}-android-{args.build_type}.zip")
+    target = os.path.join(root, f"Skia-{version}-android-{args.build_type}.tar.gz")
     print("> Writing", target)
 
     n = 0
-    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+
+    def add_file(tf, src, arcname):
+        nonlocal n
+        tf.add(str(src), arcname=arcname)
+        n += 1
+
+    with tarfile.open(target, "w:gz") as tf:
         # 1) header -> include/skia/
         for rel, p in headers:
-            zf.write(str(p), f"include/skia/{rel}")
-            n += 1
+            add_file(tf, p, f"include/skia/{rel}")
 
         # 2) library per ABI -> lib/<abi>/
         for abi, libs in abi_libs.items():
             for p in libs:
-                zf.write(str(p), f"lib/{abi}/{p.name}")
-                n += 1
+                add_file(tf, p, f"lib/{abi}/{p.name}")
 
         # 3) icudtl.dat (cari di ABI pertama yang punya) -> bin/
         for abi in abi_libs:
             icu = pathlib.Path("out") / f"{args.build_type}-{abi}" / "icudtl.dat"
             if icu.is_file():
-                zf.write(str(icu), "bin/icudtl.dat")
-                n += 1
+                add_file(tf, icu, "bin/icudtl.dat")
                 break
 
         # 4) LICENSE
         lic = pathlib.Path("LICENSE")
         if lic.is_file():
-            zf.write(str(lic), "LICENSE")
-            n += 1
+            add_file(tf, lic, "LICENSE")
 
         # 5) README.txt
-        zf.writestr("README.txt",
-                    README_TMPL.format(version=version, build_type=args.build_type,
-                                       abis=", ".join(abi_libs)))
+        data = README_TMPL.format(version=version, build_type=args.build_type,
+                                  abis=", ".join(abi_libs)).encode("utf-8")
+        info = tarfile.TarInfo("README.txt")
+        info.size = len(data)
+        tf.addfile(info, fileobj=io.BytesIO(data))
         n += 1
 
     print(f"> {n} files archived -> {os.path.basename(target)}")

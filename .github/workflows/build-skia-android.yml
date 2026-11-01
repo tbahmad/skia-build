@@ -90,7 +90,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: "Skia-*android*.zip"
+          path: "Skia-*android*.tar.gz"
           retention-days: 14
 
   # Publikasikan ZIP ke halaman Releases agar bisa diunduh publik tanpa login.
@@ -130,7 +130,7 @@ jobs:
             dipakai compile.
 
             Unduh langsung (tanpa login): klik aset di bawah, atau gunakan URL
-            `https://github.com/tbahmad/skia-build/releases/download/<tag>/<file>.zip`.
+            `https://github.com/tbahmad/skia-build/releases/download/<tag>/<file>.tar.gz`.
           files: dist/*
           draft: false
           prerelease: false

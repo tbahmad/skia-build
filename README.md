@@ -33,18 +33,18 @@ akan memicu build otomatis dengan nilai default (`chrome/m158`, Release).
 ### 3. Ambil hasilnya (artifact)
 Setelah run hijau ✅:
 1. Buka halaman run tersebut di tab **Actions** (scroll ke bawah).
-2. Bagian **Artifacts** → klik nama ZIP, misal:
+2. Bagian **Artifacts** → klik nama arsip, misal:
    - `Skia-chrome_m158-linux-Release-x64` (~636 MB)
    - `Skia-chrome_m158-android-Release` (~236 MB)
    - `Skia-chrome_m158-windows-Release-x64`
 
    > Artifact hanya bertahan 14 hari dan butuh login GitHub untuk mengunduh.
    > Untuk unduhan **publik permanen**, lihat bagian **"Halaman Releases"** di bawah.
-3. Ekstrak ZIP-nya. Struktur isinya **rapi siap-pakai development** (binary +
+3. Ekstrak arsip tar.gz-nya (`tar xzf <file>.tar.gz`). Struktur isinya **rapi siap-pakai development** (binary +
    header yang diperlukan saja — file build seperti `.o` dan test binary tidak ikut):
 
 ```
-Skia-<versi>-<platform>-<arch>-<tipe>.zip
+Skia-<versi>-<platform>-<arch>-<tipe>.tar.gz
 ├── include/skia/               # SEMUA header untuk compile, dalam satu root:
 │   ├── include/                #   public headers (core/, codec/, gpu/, ...)
 │   ├── modules/                #   skottie, skparagraph, sksg, svg, dst.
@@ -59,7 +59,7 @@ Skia-<versi>-<platform>-<arch>-<tipe>.zip
 
 Dukungan GPU yang ter-compile ke dalam `libskia.a` (semua build):
 
-| Backend | Linux | Android | Windows | Header di ZIP |
+| Backend | Linux | Android | Windows | Header di arsip |
 |---|---|---|---|---|
 | OpenGL / GLES | ✅ | ✅ | ✅ (WGL native) | `include/skia/include/gpu/gl/` |
 | EGL wrapper | ✅ | ✅ | — | `include/skia/include/gpu/gl/` |
@@ -68,7 +68,7 @@ Dukungan GPU yang ter-compile ke dalam `libskia.a` (semua build):
 
 Link tambahan library sistem saat final link aplikasi: Linux `-lGL -lEGL -lvulkan`,
 Android NDK `target_link_libraries(app PRIVATE GLESv2 EGL vulkan)`,
-Windows `opengl32.lib vulkan-1.lib`. Contoh kode ada di `README.txt` dalam ZIP.
+Windows `opengl32.lib vulkan-1.lib`. Contoh kode ada di `README.txt` dalam arsip.
 
 Cara pakai singkat:
 
@@ -86,17 +86,17 @@ Workflow **"Build Skia Windows"** punya job `release` yang otomatis membuat /
 memperbarui **GitHub Release** setiap build Windows berhasil:
 
 - Tag: `skia-chrome/m158` → halaman: https://github.com/tbahmad/skia-build/releases
-- Aset ZIP dapat diunduh **siapa saja tanpa login**, permanen (tidak terhapus
+- Aset tar.gz dapat diunduh **siapa saja tanpa login**, permanen (tidak terhapus
   seperti artifact), dan punya URL langsung berformat:
 
   ```
-  https://github.com/tbahmad/skia-build/releases/download/<tag>/<nama-file>.zip
+  https://github.com/tbahmad/skia-build/releases/download/<tag>/<nama-file>.tar.gz
   ```
 
   Contoh (bisa dipakai di CI/CD atau skrip `curl -L -O`):
 
   ```bash
-  curl -L -O https://github.com/tbahmad/skia-build/releases/download/skia-chrome_m158/Skia-chrome_m158-windows-Release-x64.zip
+  curl -L -O https://github.com/tbahmad/skia-build/releases/download/skia-chrome_m158/Skia-chrome_m158-windows-Release-x64.tar.gz
   ```
 
 - Build ulang versi yang sama akan **menimpa aset** pada release yang sama
@@ -110,7 +110,7 @@ memperbarui **GitHub Release** setiap build Windows berhasil:
 ### Android (CMake / NDK)
 ```cmake
 # CMakeLists.txt aplikasi Anda
-set(SKIA_ROOT ${CMAKE_SOURCE_DIR}/third_party/skia)   # hasil ekstrak ZIP
+set(SKIA_ROOT ${CMAKE_SOURCE_DIR}/third_party/skia)   # hasil ekstrak arsip
 
 add_library(skia STATIC IMPORTED)
 set_target_properties(skia PROPERTIES
@@ -183,7 +183,7 @@ script/
 ├── download_ndk.py            # unduh & ekstrak Android NDK r27c
 ├── build.py                   # gn gen + ninja (Linux & Windows)
 ├── build_android.py           # gn gen + ninja per ABI (Android)
-├── archive.py                 # kemas ZIP (Linux & Windows)
-└── archive_android.py         # kemas ZIP per ABI (Android)
+├── archive.py                 # kemas tar.gz (Linux & Windows)
+└── archive_android.py         # kemas tar.gz per ABI (Android)
 patches/                       # patch kompabilitas gaya JetBrains
 ```

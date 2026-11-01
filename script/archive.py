@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Kemas hasil build menjadi ZIP dengan struktur rapi siap-pakai untuk development.
+"""Kemas hasil build menjadi arsip .tar.gz dengan struktur rapi siap-pakai untuk development.
 
-Struktur ZIP (sama untuk Linux / Android / Windows):
+Struktur arsip (sama untuk Linux / Android / Windows):
 
   include/                 <- seluruh header yang dibutuhkan saat compile
     skia/                  <- public headers + internal headers (SkCanvas, SkRefCnt, dst.)
@@ -15,7 +15,7 @@ Hanya binary + header yang diperlukan untuk memakai Skia yang disertakan;
 file build (obj, toolchain, test binaries) tidak ikut masuk arsip.
 """
 
-import argparse, os, pathlib, platform, re, sys, zipfile
+import argparse, io, os, pathlib, platform, re, sys, tarfile
 
 # modul esensial yang kita build (harus konsisten dengan script/build.py)
 MODULES = ["skia", "skottie", "skparagraph", "skshaper", "svg"]
@@ -195,39 +195,44 @@ def main():
     headers = collect_headers(skia)
     print(f"> Menemukan {len(libs)} library dan {len(headers)} header di {out_dir}")
 
-    target = os.path.join(root, f"Skia-{version}-{system}-{arch_name}-{build_type}.zip")
+    target = os.path.join(root, f"Skia-{version}-{system}-{arch_name}-{build_type}.tar.gz")
     print("> Writing", target)
 
     n = 0
-    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+
+    def add_file(tf, src, arcname):
+        nonlocal n
+        tf.add(str(src), arcname=arcname)
+        n += 1
+
+    with tarfile.open(target, "w:gz") as tf:
         # 1) header -> include/skia/<path asli di repo skia>
         for rel, p in headers:
-            zf.write(str(p), f"include/skia/{rel}")
-            n += 1
+            add_file(tf, p, f"include/skia/{rel}")
 
         # 2) library -> lib/<arch>/
         for p in libs:
-            zf.write(str(p), f"lib/{arch_name}/{p.name}")
-            n += 1
+            add_file(tf, p, f"lib/{arch_name}/{p.name}")
 
         # 3) icudtl.dat -> bin/
         icu = out_dir / "icudtl.dat"
         if icu.is_file():
-            zf.write(str(icu), "bin/icudtl.dat")
-            n += 1
+            add_file(tf, icu, "bin/icudtl.dat")
 
         # 4) LICENSE
         lic = pathlib.Path("LICENSE")
         if lic.is_file():
-            zf.write(str(lic), "LICENSE")
-            n += 1
+            add_file(tf, lic, "LICENSE")
 
         # 5) README.txt singkat cara pakai
         mods = " ".join(f"-l{m_}" for m_ in MODULES if m_ != "skia")
-        zf.writestr("README.txt",
-                    README_TMPL.format(version=version, system=system, arch=arch_name,
-                                       build_type=build_type,
-                                       libs=", ".join(p.name for p in libs), mods=mods.strip()))
+        data = README_TMPL.format(version=version, system=system, arch=arch_name,
+                                  build_type=build_type,
+                                  libs=", ".join(p.name for p in libs),
+                                  mods=mods.strip()).encode("utf-8")
+        info = tarfile.TarInfo("README.txt")
+        info.size = len(data)
+        tf.addfile(info, fileobj=io.BytesIO(data))
         n += 1
 
     print(f"> {n} files archived -> {os.path.basename(target)}")
