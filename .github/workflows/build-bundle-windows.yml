@@ -98,14 +98,13 @@ jobs:
 
       - name: Compute safe artifact name
         run: |
-          SAFE_NAME=$(python -c 'import re,sys; print(re.sub(r"[^A-Za-z0-9._+-]", "_", sys.argv[1]))' "SkiaBundle-${SKIA_VERSION}-windows-${BUILD_TYPE}")
-          echo "ARTIFACT_NAME=${SAFE_NAME}" >> "$GITHUB_ENV"
+          echo "ARTIFACT_NAME=prana-libs-windows-x64" >> "$GITHUB_ENV"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_NAME }}
-          path: "SkiaBundle-*.tar.gz"
+          path: "prana-libs-*.tar.gz"
           retention-days: 14
 
   release:
@@ -118,15 +117,15 @@ jobs:
       - name: Download bundle artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: 'SkiaBundle-*windows*'
+          pattern: 'prana-libs-windows*'
           merge-multiple: true
           path: dist
 
       - name: Create / update Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: bundle-${{ env.SKIA_VERSION }}
-          name: "Skia+SDL3+Yoga+QuickJS bundle (${{ env.SKIA_VERSION }})"
+          tag_name: prana-libs-${{ env.SKIA_VERSION }}
+          name: "prana-libs — Skia+SDL3+Yoga+QuickJS (${{ env.SKIA_VERSION }})"
           body: |
             Prebuilt development bundle untuk **Windows x64 (MSVC)**: Skia + SDL3
             (SDL3.lib + SDL3.dll) + Yoga + QuickJS (libquickjs.a + qjs/qjsc.exe).

@@ -143,7 +143,7 @@ def fetch_yoga(vers, src_dir, system, machine, cmake_env=None):
 
 
 # --------------------------------------------------------------- QuickJS ----
-def fetch_quickjs(vers, src_dir, system, machine):
+def fetch_quickjs(vers, src_dir, system, machine, out_root):
     v = vers["quickjs"]["version"]
     repo = vers["quickjs"].get("repo", "quickjs-ng/quickjs")
     p = download(f"https://github.com/{repo}/releases/download/v{v}/quickjs-amalgam.zip",
@@ -157,7 +157,7 @@ def fetch_quickjs(vers, src_dir, system, machine):
     plat_map = {("linux", "x64"): "linux-x86_64", ("windows", "x64"): "windows-x86_64",
                 ("macos", "x64"): "darwin-x86_64", ("macos", "arm64"): "darwin-arm64"}
     key = plat_map.get((system, machine))
-    bin_dir = DIST / system / "bin"
+    bin_dir = out_root / "bin"             # hormati --out-subdir (mis. dist/android)
     if key:
         bin_dir.mkdir(parents=True, exist_ok=True)
         exe = ".exe" if system == "windows" else ""
@@ -224,14 +224,23 @@ def main():
                           "runtime": bool(sdl.get("runtime"))}
 
     # --- Yoga ---------------------------------------------------------------
-    yg = fetch_yoga(vers, src_dir, system, machine)
-    shutil.copytree(yg["include_root"] / "yoga", inc / "yoga", dirs_exist_ok=True)
-    shutil.copy2(yg["lib_stem"], lib / pathlib.Path(yg["lib_stem"]).name)
-    shutil.copy2(yg["license"], lic / "LICENSE.yoga.txt")
-    summary["yoga"] = {"version": yg["version"], "lib": pathlib.Path(yg["lib_stem"]).name}
+    if system == "android":
+        # host build tidak relevan; lib per-ABI dibuat oleh script/build_yoga_android.py
+        yg = fetch_yoga(vers, src_dir, system, machine)
+        shutil.copytree(yg["include_root"] / "yoga", inc / "yoga", dirs_exist_ok=True)
+        shutil.copy2(yg["license"], lic / "LICENSE.yoga.txt")
+        summary["yoga"] = {"version": yg["version"],
+                           "lib": "libyogacore.a per ABI (lihat lib/<abi>/)",
+                           "abis_note": "dibangun oleh script/build_yoga_android.py"}
+    else:
+        yg = fetch_yoga(vers, src_dir, system, machine)
+        shutil.copytree(yg["include_root"] / "yoga", inc / "yoga", dirs_exist_ok=True)
+        shutil.copy2(yg["lib_stem"], lib / pathlib.Path(yg["lib_stem"]).name)
+        shutil.copy2(yg["license"], lic / "LICENSE.yoga.txt")
+        summary["yoga"] = {"version": yg["version"], "lib": pathlib.Path(yg["lib_stem"]).name}
 
     # --- QuickJS ------------------------------------------------------------
-    qj = fetch_quickjs(vers, src_dir, system, machine)
+    qj = fetch_quickjs(vers, src_dir, system, machine, out_root)
     shutil.copytree(qj["include_root"], inc / "quickjs", dirs_exist_ok=True)
     (lic / "LICENSE.quickjs.txt").write_text(
         "QuickJS (quickjs-ng) - MIT license. See https://github.com/quickjs-ng/quickjs\n")

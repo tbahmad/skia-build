@@ -11,6 +11,9 @@ di-update untuk Skia modern (chrome/m158).
 | `.github/workflows/build-skia.yml` | Linux x64 desktop | push ke `main` (jika file terkait berubah) + manual |
 | `.github/workflows/build-skia-android.yml` | Android (arm64-v8a, armeabi-v7a, x86_64) | push ke `main` (jika file terkait berubah) + manual |
 | `.github/workflows/build-skia-windows.yml` | Windows x64 (MSVC) | push ke `main` (jika file terkait berubah) + manual |
+| `.github/workflows/build-bundle.yml` | **Bundle** Linux x64: Skia+SDL3+Yoga+QuickJS | push ke `main` (jika file terkait berubah) + manual |
+| `.github/workflows/build-bundle-android.yml` | **Bundle** Android per-ABI | push ke `main` (jika file terkait berubah) + manual |
+| `.github/workflows/build-bundle-windows.yml` | **Bundle** Windows x64 (MSVC) | push ke `main` (jika file terkait berubah) + manual |
 
 Ketiga workflow berjalan di runner Linux/Windows — workflow macOS sudah dihapus.
 
@@ -104,6 +107,34 @@ memperbarui **GitHub Release** setiap build Windows berhasil:
 - Bila ingin Linux/Android juga masuk ke release yang sama, jalankan dulu
   workflow-nya dalam 14 hari terakhir — pattern unduhan aset pada job `release`
   bisa diperluas ke `Skia-*linux*` / `Skia-*android*`.
+
+## Bundle prana-libs (Skia + SDL3 + Yoga + QuickJS) ⭐
+
+Workflow **Build Bundle** menggabungkan keempat library menjadi satu arsip
+berformat **`prana-libs-<platform>-<arch>.tar.gz`**, dipublikasikan ke halaman
+Releases dengan tag `prana-libs-<versi-skia>`:
+
+| File rilis | Isi |
+|---|---|
+| `prana-libs-linux-x64.tar.gz` | Skia + SDL3(static) + libyogacore.a + libquickjs.a + qjs/qjsc |
+| `prana-libs-windows-x64.tar.gz` | Skia + SDL3.lib/.dll + yogacore.lib + quickjs.lib + qjs.exe/qjsc.exe |
+| `prana-libs-android.tar.gz` | Skia per-ABI + libSDL3.so per-ABI + libyogacore.a per-ABI + amalgam QuickJS |
+
+Struktur di dalam arsip:
+
+```
+include/skia/     header Skia (public + internal + third_party bundled)
+include/SDL3/     #include <SDL3/SDL.h>
+include/yoga/     #include "yoga/YGNode.h"
+include/quickjs/  header + amalgam quickjs.c
+lib/<arch|abi>/   seluruh library statis/shared tiap komponen
+bin/              icudtl.dat, qjs, qjsc, SDL3.dll
+licenses/         LICENSE tiap komponen
+versions.json     versi pasti tiap komponen
+README.txt        contoh perintah compile & link
+```
+
+Versi dependency diatur terpusat di `third_party/versions.json`.
 
 ## Cara memakai library hasil build
 

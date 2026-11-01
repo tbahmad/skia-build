@@ -19,7 +19,8 @@ Struktur arsip bundle (prefix <bundle-name>/):
   versions.json     daftar versi seluruh komponen
   README.txt        instruksi compile/link & contoh pakai SDL3+Skia
 
-Nama file: SkiaBundle-<skiaver>-sdl<v>-yoga-<qjsver>-<platform>-<tipe>.tar.gz
+Nama file: prana-libs-<platform>-<arch>.tar.gz
+  (Android: prana-libs-android.tar.gz — berisi seluruh ABI di dalam lib/<abi>/)
 """
 
 import argparse, io, json, os, pathlib, platform, re, shutil, subprocess, sys, tarfile
@@ -28,6 +29,14 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from archive import MODULES, collect_headers, LIB_SUFFIX   # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
+
+
+def bundle_name(system, archs):
+    """prana-libs-<platform>-<arch>.tar.gz ; Android tidak pakai suffix arch."""
+    if system == "android":
+        return f"prana-libs-android.tar.gz"
+    arch = archs[0] if len(archs) == 1 else "+".join(sorted(archs))
+    return f"prana-libs-{system}-{arch}.tar.gz"
 
 
 def find_skia_libs(out_dir, system):
@@ -241,19 +250,26 @@ def main():
             sdl_ver = dinfo.get("sdl", {}).get("version", "?")
             yoga_ver = dinfo.get("yoga", {}).get("version", "?")
             qjs_ver = dinfo.get("quickjs", {}).get("version", "?")
+
+        def dep_arc(rel):
+            """Petakan path relatif di dist/ -> arcname dalam arsip.
+
+            Library Yoga yang di-cross-compile per ABI tersimpan di
+            dist/android/lib/<abi>/, jadi harus masuk ke lib/<abi>/ — bukan
+            lib/lib/. File lain (SDL3.so per ABI pun sudah memakai pola
+            lib/<abi>/... dari fetch_deps) dipetakan apa adanya."""
+            s = str(rel).replace("\\", "/")
+            if s.startswith("lib/"):
+                return s
+            return s
+
         for p in sorted(deps_dir.rglob("*")):
             if not p.is_file():
                 continue
             rel = p.relative_to(deps_dir)
-            s = str(rel)
-            if s.startswith("include/"):
-                entries.append((s, p))                       # include/SDL3..., include/yoga...
-            elif s.startswith("lib/"):
-                entries.append((f"lib/{rel}".replace("\\", "/"), p))
-            elif s.startswith("bin/"):
-                entries.append((s, p))                       # qjs/qjsc/SDL3.dll
-            elif s.startswith("licenses/"):
-                entries.append((s, p))
+            s = str(rel).replace("\\", "/")
+            if s.startswith(("include/", "lib/", "bin/", "licenses/")):
+                entries.append((dep_arc(s), p))
         # libquickjs.a: build dari amalgam bila mungkin (host build saja)
         qjs_inc = deps_dir / "include" / "quickjs"
         if qjs_inc.is_dir() and system in ("linux", "windows"):
@@ -274,9 +290,8 @@ def main():
         "platform": system, "archs": list(skia_outs),
     }
 
-    name = (f"SkiaBundle-{skia_version}-sdl{sdl_ver}-yoga-quickjs{qjs_ver}"
-            f"-{system}-{args.build_type}.tar.gz")
-    name = re.sub(r"[^\w.\-+]", "_", name)
+    # Nama arsip: prana-libs-<platform>-<arch>.tar.gz (Android tanpa arch)
+    name = bundle_name(system, list(skia_outs))
     target = ROOT / name
     print("> Writing", target)
 
