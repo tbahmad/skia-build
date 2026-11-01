@@ -2,3 +2,7 @@ depot_tools/
 skia/
 *.zip
 __pycache__/
+dist/
+third_party/_cache/
+_quickjs_build/
+*.tar.gz

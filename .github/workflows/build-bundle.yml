@@ -1,0 +1,122 @@
+# Build BUNDLE prebuilt: Skia + SDL3 + Yoga + QuickJS (Linux x64)
+#
+# Menggabungkan pipeline lama (checkout.py -> build.py -> archive.py) dengan
+# dependency pihak ketiga dari script/fetch_deps.py, hasilnya SATU arsip
+# .tar.gz berisi header+library keempat komponen, dipublikasikan ke Releases.
+name: Build Bundle (Skia+SDL3+Yoga+QuickJS)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-bundle.yml'
+      - 'script/**'
+      - 'third_party/versions.json'
+      - 'patches/**'
+  workflow_dispatch:
+    inputs:
+      skia_version:
+        description: "Versi Skia: main | chrome/mNNN (mis. chrome/m158)"
+        required: false
+        default: "chrome/m158"
+        type: string
+      build_type:
+        description: "Tipe build"
+        required: false
+        default: "Release"
+        type: choice
+        options:
+          - Release
+          - Debug
+
+env:
+  SKIA_VERSION: ${{ github.event.inputs.skia_version || 'chrome/m158' }}
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+  DEPOT_TOOLS_UPDATE: "0"
+
+jobs:
+  linux:
+    name: Bundle Linux x64 (${{ github.event.inputs.build_type || 'Release' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout this repo (script + patches + versions.json)
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            git curl unzip zip python3 cmake pkg-config ninja-build gcc g++ \
+            libfontconfig1-dev libglu1-mesa-dev \
+            libvulkan-dev libegl1-mesa-dev libgles2-mesa-dev libgl1-mesa-dev \
+            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev \
+            libxrandr-dev libxss-dev libxtst-dev libasound2-dev libpulse-dev \
+            libudev-dev libdbus-1-dev libibus-1.0-dev libfcitx5dev-dev libdrm-dev
+          # deps di atas = yang dibutuhkan SDL3 untuk build static penuh
+          # (X11/audio/input); tanpa itu CMake SDL3 gagal konfigurasi.
+
+      - name: Checkout Skia (script/checkout.py)
+        run: python3 script/checkout.py --version "$SKIA_VERSION"
+
+      - name: Build Skia (script/build.py)
+        run: python3 script/build.py --build-type "$BUILD_TYPE"
+
+      - name: Fetch & build SDL3 + Yoga + QuickJS (script/fetch_deps.py)
+        run: python3 script/fetch_deps.py
+
+      - name: Archive bundle (script/archive_bundle.py)
+        run: python3 script/archive_bundle.py --version "$SKIA_VERSION" --build-type "$BUILD_TYPE"
+
+      - name: Compute safe artifact name
+        run: |
+          SAFE_NAME=$(python3 -c 'import re,sys; print(re.sub(r"[^A-Za-z0-9._+-]", "_", sys.argv[1]))' "SkiaBundle-${SKIA_VERSION}-linux-${BUILD_TYPE}")
+          echo "ARTIFACT_NAME=${SAFE_NAME}" >> "$GITHUB_ENV"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: "SkiaBundle-*.tar.gz"
+          retention-days: 14
+
+  # Publikasikan bundle ke halaman Releases agar bisa diunduh publik tanpa login.
+  release:
+    name: Publish to GitHub Releases
+    needs: linux
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download bundle artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'SkiaBundle-*linux*'
+          merge-multiple: true
+          path: dist
+
+      - name: List files
+        run: ls -la dist/
+
+      - name: Create / update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: bundle-${{ env.SKIA_VERSION }}
+          name: "Skia+SDL3+Yoga+QuickJS bundle (${{ env.SKIA_VERSION }})"
+          body: |
+            Prebuilt development bundle: **Skia** (+modules skottie/skparagraph/svg),
+            **SDL3**, **Yoga**, **QuickJS** — headers, static libs, CLI qjs/qjsc,
+            dan README cara link, dalam satu `.tar.gz`.
+
+            | Platform | Arsitektur | Komponen |
+            |---|---|---|
+            | Linux | x64 | Skia + SDL3(static) + Yoga + QuickJS |
+
+            Detail versi ada di `versions.json` di dalam arsip.
+            Unduh publik tanpa login via aset di bawah atau URL
+            `https://github.com/tbahmad/skia-build/releases/download/bundle-<ver>/<file>.tar.gz`.
+          files: dist/*
+          draft: false
+          prerelease: false
+          makeid: false
+          fail_on_unmatched_files: true
