@@ -1,0 +1,19 @@
+# ParanaLibsConfig.cmake - dihasilkan oleh scripts/package.py dari
+# CMake/ParanaLibsConfig.cmake.in. Jangan edit hasil di dalam arsip.
+#
+# Pemakaian:
+#   list(APPEND CMAKE_PREFIX_PATH "<ekstrak>/parana-libs")
+#   find_package(ParanaLibs REQUIRED COMPONENTS skia sdl3 quickjs yoga)
+#   target_link_libraries(app PRIVATE ParanaLibs::skia ParanaLibs::sdl3
+#                                     ParanaLibs::quickjs ParanaLibs::yoga)
+@PACKAGE_INIT@
+
+set(ParanaLibs_BUILD_TYPE "@BUILD_TYPE@")
+
+if(NOT DEFINED PARANA_LIB_ARCH AND CMAKE_SYSTEM_NAME STREQUAL "Android")
+  set(PARANA_LIB_ARCH "${CMAKE_ANDROID_ARCH_ABI}")
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/ParanaLibsTargets.cmake")
+
+check_required_components(ParanaLibs)

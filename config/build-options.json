@@ -1,0 +1,51 @@
+{
+  "_comment": "GN args yang dipakai scripts/build.py. 'common' berlaku semua platform; blok per-platform ditambahkan afterwards (meng-overwrite arg dengan nama sama).",
+  "build_types": {
+    "Release": ["is_debug=false", "is_component_build=false"],
+    "Debug":   ["is_debug=true"]
+  },
+  "common": [
+    "skia_use_system_expat=false",
+    "skia_use_system_libjpeg_turbo=false",
+    "skia_use_system_libpng=false",
+    "skia_use_system_libwebp=false",
+    "skia_use_system_zlib=false",
+    "skia_use_system_freetype2=false",
+    "skia_use_system_harfbuzz=false",
+    "skia_use_system_icu=false",
+    "skia_use_sfntly=false",
+    "skia_use_freetype=true",
+    "skia_use_icu=true",
+    "skia_pdf_subset_harfbuzz=true",
+    "skia_enable_skottie=true",
+    "skia_use_gl=true",
+    "skia_enable_gpu_debug_tools=true",
+    "skia_enable_gpu=true",
+    "is_official_build=false"
+  ],
+  "platform": {
+    "linux": [
+      "cc=\"gcc\"",
+      "cxx=\"g++\"",
+      "extra_cflags_cc=[\"-frtti\"]",
+      "skia_use_egl=true",
+      "skia_use_vulkan=true"
+    ],
+    "windows": [
+      "extra_cflags_cc=[\"-frtti\"]",
+      "skia_use_direct3d=true",
+      "skia_use_vulkan=true"
+    ],
+    "android": [
+      "target_os=\"android\"",
+      "skia_use_egl=true",
+      "skia_use_vulkan=false",
+      "extra_cflags_cc=[\"-frtti\"]"
+    ],
+    "macos": [
+      "skia_use_metal=true",
+      "extra_cflags_cc=[\"-frtti\"]"
+    ]
+  },
+  "ninja_targets": ["skia", "modules/skottie", "modules/skparagraph", "modules/skshaper", "modules/svg"]
+}

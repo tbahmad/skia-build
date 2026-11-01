@@ -1,0 +1,22 @@
+{
+  "_comment": "Satu-satunya sumber kebenaran versi dependency. Update file ini untuk menaikkan versi (workflow otomatis rebuild via paths filter).",
+  "skia": {
+    "ref": "chrome/m158"
+  },
+  "sdl3": {
+    "version": "3.4.18",
+    "tag": "release-3.4.18",
+    "repo": "libsdl-org/SDL"
+  },
+  "yoga": {
+    "ref": "main",
+    "repo": "facebook/yoga"
+  },
+  "quickjs": {
+    "version": "0.17.0",
+    "repo": "quickjs-ng/quickjs"
+  },
+  "android_ndk": {
+    "version": "27.3.13750724"
+  }
+}

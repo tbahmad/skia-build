@@ -1,0 +1,69 @@
+name: Build Windows bundle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'config/**'
+      - 'scripts/**'
+      - 'patches/**'
+      - '.github/workflows/build-windows.yml'
+  pull_request:
+    paths: ['config/**', 'scripts/**', 'patches/**']
+  workflow_dispatch:
+    inputs:
+      skia_version:
+        description: 'Skia ref/branch (mis. chrome/m158) - kosong = config/versions.json'
+        required: false
+        default: ''
+      build_type:
+        description: 'Tipe build'
+        required: false
+        default: 'Release'
+        type: choice
+        options: [Release, Debug]
+
+jobs:
+  build:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Setup MSVC developer command prompt
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install ninja
+        run: choco install ninja -y
+
+      - name: Cache depot_tools
+        uses: actions/cache@v4
+        with:
+          path: depot_tools
+          key: dt-${{ runner.os }}-${{ hashFiles('scripts/**') }}
+
+      - name: Set version env
+        run: |
+          [ -n "${{ inputs.skia_version }}" ] && echo "SKIA_VERSION=${{ inputs.skia_version }}" >> "$GITHUB_ENV"
+          echo "BUILD_TYPE=${{ inputs.build_type || 'Release' }}" >> "$GITHUB_ENV"
+
+      - name: Build all components (skia+sdl3+yoga+quickjs)
+        run: python scripts/build.py --platform windows --arch x86_64
+
+      - name: Package parana-libs archive
+        run: python scripts/package.py --platform windows --arch x86_64
+
+      - name: Show artifacts
+        run: ls -l out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-windows
+          path: out/parana-libs-windows-*
+          if-no-files-found: error
+          retention-days: 30

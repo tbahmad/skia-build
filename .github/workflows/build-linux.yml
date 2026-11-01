@@ -1,0 +1,71 @@
+name: Build Linux bundle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'config/**'
+      - 'scripts/**'
+      - 'patches/**'
+      - '.github/workflows/build-linux.yml'
+  pull_request:
+    paths: ['config/**', 'scripts/**', 'patches/**']
+  workflow_dispatch:
+    inputs:
+      skia_version:
+        description: 'Skia ref/branch (mis. chrome/m158) - kosong = config/versions.json'
+        required: false
+        default: ''
+      build_type:
+        description: 'Tipe build'
+        required: false
+        default: 'Release'
+        type: choice
+        options: [Release, Debug]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+          git curl unzip zip xz-utils ninja-build cmake \
+          libfontconfig1-dev libgl1-mesa-dev libegl1-mesa-dev libx11-dev libxcursor-dev \
+          libxinerama-dev libxrandr-dev libxi-dev libxxf86vm-dev libglu1-mesa-dev \
+          mesa-common-dev libasound2-dev libpulse-dev libdbus-1-dev libibus-1.0-dev \
+          fcitx5-devel libudev-dev
+
+      - name: Cache depot_tools + NDK-free build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            depot_tools
+            ~/.cache
+          key: dt-${{ runner.os }}-${{ hashFiles('scripts/**') }}
+
+      - name: Set version env
+        run: |
+          if [ -n "${{ inputs.skia_version }}" ]; then
+            echo "SKIA_VERSION=${{ inputs.skia_version }}" >> "$GITHUB_ENV"
+          fi
+          echo "BUILD_TYPE=${{ inputs.build_type || 'Release' }}" >> "$GITHUB_ENV"
+
+      - name: Build all components (skia+sdl3+yoga+quickjs)
+        run: python3 scripts/build.py --platform linux --arch x86_64
+
+      - name: Package parana-libs archive
+        run: python3 scripts/package.py --platform linux --arch x86_64
+
+      - name: Show artifacts
+        run: ls -lh out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-linux
+          path: out/parana-libs-linux-*
+          retention-days: 30

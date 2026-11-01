@@ -1,0 +1,64 @@
+name: Build Android bundle
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'config/**'
+      - 'scripts/**'
+      - 'patches/**'
+      - '.github/workflows/build-android.yml'
+  pull_request:
+    paths: ['config/**', 'scripts/**', 'patches/**']
+  workflow_dispatch:
+    inputs:
+      skia_version:
+        description: 'Skia ref/branch (mis. chrome/m158)'
+        required: false
+        default: ''
+      abis:
+        description: 'ABI target (pisah koma)'
+        required: false
+        default: 'arm64-v8a,armeabi-v7a'
+      build_type:
+        description: 'Tipe build'
+        required: false
+        default: 'Release'
+        type: choice
+        options: [Release, Debug]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Install host build deps
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends \
+          git curl unzip zip xz-utils ninja-build cmake
+
+      - name: Set version env
+        run: |
+          [ -n "${{ inputs.skia_version }}" ] && echo "SKIA_VERSION=${{ inputs.skia_version }}" >> "$GITHUB_ENV"
+          echo "BUILD_TYPE=${{ inputs.build_type || 'Release' }}" >> "$GITHUB_ENV"
+          echo "ANDROID_ABIS=${{ inputs.abis || 'arm64-v8a,armeabi-v7a' }}" >> "$GITHUB_ENV"
+
+      # Skia butuh NDK klasik di folder kerja (GN arg ndk="..."); modul
+      # scripts/build.py::download_ndk mengunduhnya sesuai config/versions.json.
+      - name: Build all components per ABI
+        run: python3 scripts/build.py --platform android --abis "$ANDROID_ABIS"
+
+      - name: Package one ZIP per ABI
+        run: python3 scripts/package.py --platform android
+
+      - name: Show artifacts
+        run: ls -lh out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-android
+          path: out/parana-libs-android-*
+          retention-days: 30

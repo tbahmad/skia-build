@@ -1,0 +1,32 @@
+{
+  "_comment": "Definisi platform target, arsitektur default, format arsip, dan mapping ABI->target_cpu GN.",
+  "linux": {
+    "runner": "ubuntu-24.04",
+    "archs": ["x64"],
+    "arch_aliases": { "x64": ["x86_64", "amd64"] },
+    "archive_format": "tar.xz",
+    "lib_prefix": "lib",
+    "lib_suffix": ".a"
+  },
+  "windows": {
+    "runner": "windows-2022",
+    "archs": ["x64"],
+    "arch_aliases": { "x64": ["x86_64", "amd64"] },
+    "archive_format": "zip",
+    "lib_prefix": "",
+    "lib_suffix": ".lib"
+  },
+  "android": {
+    "runner": "ubuntu-24.04",
+    "archs": ["arm64-v8a", "armeabi-v7a", "x86_64"],
+    "gn_cpu": {
+      "arm64-v8a": "arm64",
+      "armeabi-v7a": "arm",
+      "x86": "x86",
+      "x86_64": "x86_64"
+    },
+    "archive_format": "zip",
+    "lib_prefix": "lib",
+    "lib_suffix": ".a"
+  }
+}

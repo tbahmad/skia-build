@@ -1,0 +1,47 @@
+# ParanaLibsTargets.cmake - interface IMPORTED untuk tiap komponen bundle.
+# Nama file library (@...@) dirender per platform oleh scripts/package.py.
+if(TARGET ParanaLibs::skia)
+  return()
+endif()
+
+get_filename_component(_pl_root "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
+set(_pl_libdir "${_pl_root}/lib")
+if(@IS_ANDROID@)
+  set(_pl_libdir "${_pl_libdir}/${PARANA_LIB_ARCH}")
+endif()
+
+add_library(ParanaLibs::skia STATIC IMPORTED GLOBAL)
+set_target_properties(ParanaLibs::skia PROPERTIES
+  IMPORTED_LOCATION "${_pl_libdir}/@SKIA_LIB@"
+  INTERFACE_INCLUDE_DIRECTORIES "${_pl_root}/include/skia;${_pl_root}/include/skia/third_party/externals/freetype/include;${_pl_root}/include/skia/third_party/externals/harfbuzz/src;${_pl_root}/include/skia/third_party/externals/icu/source/common;${_pl_root}/include/skia/third_party/externals/icu/source/i18n")
+
+add_library(ParanaLibs::sdl3 UNKNOWN IMPORTED GLOBAL)
+set_target_properties(ParanaLibs::sdl3 PROPERTIES
+  IMPORTED_LOCATION "${_pl_libdir}/@SDL3_LIB@"
+  INTERFACE_INCLUDE_DIRECTORIES "${_pl_root}/include")
+
+add_library(ParanaLibs::quickjs STATIC IMPORTED GLOBAL)
+set_target_properties(ParanaLibs::quickjs PROPERTIES
+  IMPORTED_LOCATION "${_pl_libdir}/@QJS_LIB@"
+  INTERFACE_INCLUDE_DIRECTORIES "${_pl_root}/include/quickjs")
+
+add_library(ParanaLibs::yoga STATIC IMPORTED GLOBAL)
+set_target_properties(ParanaLibs::yoga PROPERTIES
+  IMPORTED_LOCATION "${_pl_libdir}/@YOGA_LIB@"
+  INTERFACE_INCLUDE_DIRECTORIES "${_pl_root}/include")
+
+# Dependensi sistem yang dibutuhkan Skia (OpenGL/EGL/Vulkan/dll) & SDL3.
+if(@IS_WIN@)
+  set(_pl_sys opengl32 vulkan-1 d3d11 dxgi ws2_32 dbghelp user32 shell32 ole32)
+elseif(@IS_ANDROID@)
+  set(_pl_sys GLESv2 EGL log android jnigraphics)
+else()
+  set(_pl_sys GL EGL vulkan dl pthread m)
+endif()
+foreach(_l IN LISTS _pl_sys)
+  if(TARGET ParanaLibs::skia)
+    set_property(TARGET ParanaLibs::skia APPEND PROPERTY
+      INTERFACE_LINK_LIBRARIES ${_l})
+  endif()
+endforeach()
+set_property(TARGET ParanaLibs::sdl3 APPEND PROPERTY INTERFACE_LINK_LIBRARIES ${_pl_sys})

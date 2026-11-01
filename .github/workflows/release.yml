@@ -1,0 +1,61 @@
+name: Release bundles
+
+on:
+  workflow_run:
+    workflows: ["Build Linux bundle", "Build Windows bundle", "Build Android bundle"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag rilis (mis. v0.3.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download all bundle artifacts from the triggering run
+        uses: actions/download-artifact@v4
+        with:
+          name: bundle-linux
+          path: dist
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Windows + Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: 'bundle-*'
+          path: dist
+          merge-multiple: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: List collected archives
+        run: ls -lh dist/
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag }}" ]; then
+            echo "tag=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            SHA=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}" \
+              | jq -r .head_sha)
+            echo "tag=bundle-$SHA" >> "$GITHUB_OUTPUT"
+          fi
+        env: { GITHUB_TOKEN: '${{ secrets.GITHUB_TOKEN }}' }
+
+      - name: Create / update release & upload archives
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
